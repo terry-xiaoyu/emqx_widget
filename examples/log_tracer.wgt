@@ -1,0 +1,48 @@
+title: "log tracer"
+description: "the log tracer is a log handler for tracing a topic or clientid"
+schema: [
+  {
+    name: type
+    type: string
+    enum: [topic, clientid]
+    required: true
+    title: "The type of the log tracer"
+    description: """You can trace on either a topic or a clientid"""
+  },
+  {
+    name: value
+    type: string
+    required: true
+    title: "The topic or clientid you want to trace"
+    description: """Provide the value of the topic or clientid you want to trace"""
+  },
+  {
+    name: level
+    type: string
+    enum: [debug, info, notice, warning, error, critical, alert, emergency]
+    default: debug
+    title: "The log severity level"
+    description: """Only the messages with severity level higher than or equal to
+        this level will be logged"""
+  },
+  {
+    name: dir
+    type: string
+    format: file_path
+    required: false
+    default: "/tmp"
+    title: "The dir where the log messages should go"
+    description: """The log messages will be cached to a file in
+        this dir, and you can the unread messages by calling the
+        `next_batch` API"""
+  },
+  {
+    name: bulk
+    type: size
+    required: false
+    default: 1KB
+    title: "The max size of one bulk"
+    description: """One bulk is how much log messages will return
+        when calling the `next_batch` API"""
+  },
+]
