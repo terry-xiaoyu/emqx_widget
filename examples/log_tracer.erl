@@ -1,0 +1,2 @@
+-behaviour(emqx_widget).
+

@@ -1,4 +1,4 @@
-title: "log tracer"
+title: "the log tracer"
 description: "the log tracer is a log handler for tracing a topic or clientid"
 schema: [
   {

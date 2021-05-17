@@ -1,7 +1,8 @@
 {application, emqx_widget,
- [{description, "An OTP library"},
+ [{description, "An OTP application"},
   {vsn, "0.1.0"},
   {registered, []},
+  {mod, {emqx_widget_app, []}},
   {applications,
    [kernel,
     stdlib
