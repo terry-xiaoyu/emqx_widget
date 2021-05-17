@@ -14,10 +14,10 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_widget_validator).
+-module(emqx_widget_spec).
 
 -export([ validate_params/2
-        , validate_spec/1
+        , validate/1
         ]).
 
 -type name() :: atom().
@@ -73,10 +73,10 @@ validate_params(Params, ParamsSepc) ->
             end)
     end, Params, ParamsSepc).
 
--spec(validate_spec(params_spec()) -> ok).
-validate_spec(any) -> ok;
-validate_spec(ParamsSepc) ->
-    map_foreach(fun do_validate_spec/2, ParamsSepc).
+-spec(validate(params_spec()) -> ok).
+validate(any) -> ok;
+validate(ParamsSepc) ->
+    lists:foreach(fun do_validate/1, ParamsSepc).
 
 %%------------------------------------------------------------------------------
 %% Internal Functions
@@ -145,36 +145,30 @@ reg_exp(resource_type) -> "[a-zA-Z0-9_:-]";
 reg_exp(any) -> ".*";
 reg_exp(RegExp) -> RegExp.
 
-do_validate_spec(Name, #{type := object} = Spec) ->
+do_validate(#{type := object, name := Name} = Spec) ->
     find_field(schema, Spec,
         fun (not_found) -> throw({required_field_missing, {schema, {in, Name}}});
-            (Schema) -> validate_spec(Schema)
+            (Schema) -> validate(Schema)
         end);
-do_validate_spec(Name, #{type := array} = Spec) ->
+do_validate(#{type := array, name := Name} = Spec) ->
     find_field(items, Spec,
         fun (not_found) -> throw({required_field_missing, {items, {in, Name}}});
-            (Items) -> do_validate_spec(Name, Items)
+            (Items) -> do_validate(Items)
         end);
-do_validate_spec(_Name, #{type := Type}) ->
+do_validate(#{type := Type}) ->
     _ = supported_data_type(Type, ?DATA_TYPES);
 
-do_validate_spec(Name, _Spec) ->
-    throw({required_field_missing, {type, {in, Name}}}).
+do_validate(#{name := Name}) ->
+    throw({required_field_missing, {type, {in, Name}}});
+
+do_validate(_Spec) ->
+    throw({required_field_missing, {name, {in, _Spec}}}).
 
 supported_data_type(Type, Supported) ->
     case lists:member(Type, Supported) of
         false -> throw({unsupported_data_types, Type});
         true -> ok
     end.
-
-map_foreach(Fun, Map) ->
-    Iterator = maps:iterator(Map),
-    map_foreach_loop(Fun, maps:next(Iterator)).
-
-map_foreach_loop(_Fun, none) -> ok;
-map_foreach_loop(Fun, {Key, Value, Iterator}) ->
-    _ = Fun(Key, Value),
-    map_foreach_loop(Fun, maps:next(Iterator)).
 
 find_field(Field, Spec, Func) ->
     do_find_field([bin(Field), Field], Spec, Func).

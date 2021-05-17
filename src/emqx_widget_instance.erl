@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/0]).
+-export([start_link/2]).
 
 -compile({no_auto_import,
           [ get/1
@@ -41,7 +41,7 @@
         , stop/1   %% stop the instance
         ]).
 
--export([ lookup/1 %% return the configs and the state of the instance
+-export([ get/1 %% return the configs and the state of the instance
         , dependents/1
         , inc_counter/2 %% increment the counter of the instance
         , inc_counter/3 %% increment the counter by a given integer
@@ -65,15 +65,31 @@ dump() ->
 %%------------------------------------------------------------------------------
 %% Start the registry
 %%------------------------------------------------------------------------------
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+start_link(Pool, Id) ->
+    gen_server:start_link({local, proc_name(?MODULE, Id)},
+                          ?MODULE, [Pool, Id], []).
+
+-spec create(widget_config()) -> {ok, widget_state()} | {error, Reason :: term()}.
+create(#{<<"widget_name">> := WidgetName} = Config) ->
+    InstId = maps:get(<<"id">>, Config, gen_inst_id(WidgetName)),
+    call(InstId, {create, Config}).
+
+-spec create_dry_run(widget_config()) -> {ok, widget_state()} | {error, Reason :: term()}.
+create_dry_run(#{<<"widget_name">> := WidgetName} = Config) ->
+    InstId = maps:get(<<"id">>, Config, gen_inst_id(WidgetName)),
+    call(InstId, {create_dry_run, Config}).
+
+call(InstId, Request) ->
+    gen_server:call(pick(InstId), Request, infinity).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
 
-init([]) ->
-    {ok, #{}}.
+init([Pool, Id]) ->
+    true = gproc_pool:connect_worker(Pool, {Pool, Id}),
+    {ok, #{pool => Pool, id => Id}}.
 
 handle_call(Req, _From, State) ->
     {reply, ignored, State}.
@@ -84,8 +100,8 @@ handle_cast(Msg, State) ->
 handle_info(Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, #{pool := Pool, id := Id}) ->
+    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -115,6 +131,9 @@ call(InstId, Request) ->
 stop(InstId) ->
     Mod = cbk_mod(InstId),
     Mod:on_stop(InstId, get_state(InstId)).
+
+proc_name(Mod, Id) ->
+    list_to_atom(lists:concat([Mod, "_", Id])).
 
 cbk_mod(InstId) ->
     [WidgetName, _Id] = string:split(InstId, ":"),
@@ -172,11 +191,14 @@ delete_rule(RuleId) ->
             ok
     end.
 
+pick(InstId) ->
+    gproc_pool:pick_worker(emqx_widget_instance, InstId).
+
 gen_inst_id(WidgetName) ->
     gen_id(WidgetName, fun emqx_widget_registry:get_widget_inst/1).
 
 gen_id(Prefix, TestFun) ->
-    Id = iolist_to_binary([Prefix, emqx_rule_id:gen()]),
+    Id = iolist_to_binary([Prefix, ":", emqx_rule_id:gen()]),
     case TestFun(Id) of
         not_found -> Id;
         _Res -> gen_id(Prefix, TestFun)

@@ -11,25 +11,35 @@
 
 -export([init/1]).
 
--define(SERVER, ?MODULE).
+-define(WIDGET_INST_MOD, emqx_widget_instance).
+-define(POOL_SIZE, 64). %% set a pool size in case all the workers busy
 
 start_link() ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-%% sup_flags() = #{strategy => strategy(),         % optional
-%%                 intensity => non_neg_integer(), % optional
-%%                 period => pos_integer()}        % optional
-%% child_spec() = #{id => child_id(),       % mandatory
-%%                  start => mfargs(),      % mandatory
-%%                  restart => restart(),   % optional
-%%                  shutdown => shutdown(), % optional
-%%                  type => worker(),       % optional
-%%                  modules => modules()}   % optional
 init([]) ->
-    SupFlags = #{strategy => one_for_all,
-                 intensity => 0,
-                 period => 1},
-    ChildSpecs = [],
-    {ok, {SupFlags, ChildSpecs}}.
+    SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
+    Pool = ?WIDGET_INST_MOD,
+    Mod = ?WIDGET_INST_MOD,
+    ensure_pool(Pool, hash, [{size, ?POOL_SIZE}]),
+    {ok, {SupFlags, [
+        begin
+            ensure_pool_worker(Pool, {Pool, Idx}, Idx),
+            #{id => {Mod, Idx},
+              start => {Mod, start_link, [Pool, Idx]},
+              restart => transient,
+              shutdown => 5000, type => worker, modules => [Mod]}
+        end || Idx <- lists:seq(1, ?POOL_SIZE)]}}.
 
 %% internal functions
+ensure_pool(Pool, Type, Opts) ->
+    try gproc_pool:new(Pool, Type, Opts)
+    catch
+        error:exists -> ok
+    end.
+
+ensure_pool_worker(Pool, Name, Slot) ->
+    try gproc_pool:add_worker(Pool, Name, Slot)
+    catch
+        error:exists -> ok
+    end.
