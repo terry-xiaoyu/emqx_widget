@@ -43,7 +43,8 @@
         , stop/1   %% stop the instance
         ]).
 
--export([ get/1 %% return the configs and the state of the instance
+-export([ get/1 %% return the data of the instance
+        , get_by_type/1 %% return all the instances of the same widget type
         % , dependents/1
         % , inc_counter/2 %% increment the counter of the instance
         % , inc_counter/3 %% increment the counter by a given integer
@@ -132,11 +133,16 @@ stop(InstId) ->
 health_check(InstId) ->
     hash_call(InstId, {health_check, InstId}).
 
+-spec get(instance_id()) -> {ok, widget_data()} | {error, Reason :: term()}.
 get(InstId) ->
-    case ets:lookup(InstId) of
+    case ets:lookup(?WIDGET_INST_TAB, InstId) of
         [] -> {error, not_found};
         [{_, Data}] -> {ok, Data}
     end.
+
+-spec get_by_type(module()) -> [widget_data()].
+get_by_type(Mod) ->
+    [Data || #{mod := Mod0} = Data <- ets:tab2list(?WIDGET_INST_TAB), Mod0 =:= Mod].
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
