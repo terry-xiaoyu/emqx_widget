@@ -30,9 +30,6 @@
 
 -define(EXT, "*.wgt").
 
--type after_query() :: {OnSuccess :: after_query_fun(), OnFailed :: after_query_fun()} |
-    undefined.
-
 %% when calling emqx_widget_instance:start/1
 -callback on_start(instance_id(), widget_config()) ->
     {ok, widget_state()} | {error, Reason :: term()}.
@@ -73,15 +70,15 @@ is_widget_mod(Mod) ->
 
 %% =================================================================================
 
-load_spec_file(File) ->
-    case hocon:load(File, #{format => map, [duration, bytesize, percent]}) of
-        {ok, Widget0} ->
-            case emqx_widget_validator:validate_spec(Widget0) of
-                ok -> Widget0;
-                {error, Reason} ->
-                    logger:error("validate widget ~p failed: ~p", [File, Reason])
-            end;
-        {error, Reason} ->
-            logger:error("load widget from ~p failed: ~p", [File, Reason])
-    end.
+% load_spec_file(File) ->
+%     case hocon:load(File, #{format => map, convert => [duration, bytesize, percent]}) of
+%         {ok, Widget0} ->
+%             case emqx_widget_validator:validate_spec(Widget0) of
+%                 ok -> Widget0;
+%                 {error, Reason} ->
+%                     logger:error("validate widget ~p failed: ~p", [File, Reason])
+%             end;
+%         {error, Reason} ->
+%             logger:error("load widget from ~p failed: ~p", [File, Reason])
+%     end.
 

@@ -39,14 +39,14 @@
 -export([ query/2  %% query the instance
         , query/3  %% query the instance with after_query()
         , restart/1  %% restart the instance
-        , health_check/2 %% verify if the widget is working normally
+        , health_check/1 %% verify if the widget is working normally
         , stop/1   %% stop the instance
         ]).
 
 -export([ get/1 %% return the configs and the state of the instance
-        , dependents/1
-        , inc_counter/2 %% increment the counter of the instance
-        , inc_counter/3 %% increment the counter by a given integer
+        % , dependents/1
+        % , inc_counter/2 %% increment the counter of the instance
+        % , inc_counter/3 %% increment the counter by a given integer
         ]).
 
 %% for debug purposes
@@ -92,7 +92,7 @@ create(Config) ->
 create_dry_run(Config) ->
     create(create_dry_run, Config).
 create(CreateType, #{<<"widget_type">> := _} = Config) ->
-    ?CLUSTER_CALL(hash_call, [InstId, {CreateType, Config}], {ok, _}).
+    ?CLUSTER_CALL(hash_call, [{CreateType, Config}], {ok, _}).
 
 -spec update(widget_config()) -> ok | {error, Reason :: term()}.
 update(#{<<"id">> := InstId} = Config) ->
@@ -102,13 +102,13 @@ update(#{<<"id">> := InstId} = Config) ->
 remove(InstId) ->
     ?CLUSTER_CALL(hash_call, [InstId, {remove, InstId}], {ok, _}).
 
--spec query(instance_id(), Request :: term()) -> Result :: term()}.
+-spec query(instance_id(), Request :: term()) -> Result :: term().
 query(InstId, Request) ->
     query(InstId, Request, undefined).
 
 %% same to above, also defines what to do when the Module:on_query success or failed
 %% it is the duty of the Moudle to apply the `after_query()` functions.
--spec query(instance_id(), Request :: term(), after_query()) -> Result :: term()}.
+-spec query(instance_id(), Request :: term(), after_query()) -> Result :: term().
 query(InstId, Request, AfterQuery) ->
     case get(InstId) of
         {ok, #{mod := Mod, state := WidgetState}} ->
@@ -157,7 +157,7 @@ handle_call({update, Config}, _From,
     {reply, do_update(Config), State};
 
 handle_call({remove, InstId}, _From, State) ->
-    {reply, remove_instance(InstId), State};
+    {reply, do_remove(InstId), State};
 
 handle_call({restart, InstId}, _From, State) ->
     {reply, do_restart(InstId), State};
@@ -172,10 +172,10 @@ handle_call(Req, _From, State) ->
     logger:error("Received unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast(Msg, State) ->
+handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(Info, State) ->
+handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->
@@ -185,7 +185,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%------------------------------------------------------------------------------
-start_instance(WidgetType, InstId, Config) ->
+start_instance(#{<<"widget_type">> := WidgetType} = Config) ->
     case get_cbk_mod_of_widget(WidgetType) of
         {ok, Mod} ->
             InstId = maps:get(<<"id">>, Config, gen_inst_id(WidgetType)),
@@ -197,18 +197,18 @@ start_instance(WidgetType, InstId, Config) ->
     end.
 
 do_create(#{<<"widget_type">> := WidgetType} = Config) ->
-    case start_instance(WidgetType, Config) of
+    case start_instance(Config) of
         {ok, Mod, InstId, WidgetState} ->
             ets:insert(?WIDGET_INST_TAB, {InstId, #{mod => Mod, config => Config,
                 state => WidgetState, status => started}}),
-            ok
+            ok;
         {error, Reason} ->
             logger:error("start ~s widget ~s failed: ~p", [WidgetType, Reason]),
             {error, Reason}
     end.
 
-do_create_dry_run(#{<<"widget_type">> := WidgetType} = Config) ->
-    case start_instance(WidgetType, Config) of
+do_create_dry_run(Config) ->
+    case start_instance(Config) of
         {ok, Mod, InstId, WidgetState0} ->
             case mod_health_check(Mod, InstId, WidgetState0) of
                 {ok, WidgetState1} ->
@@ -241,7 +241,7 @@ do_update(#{<<"Id">> := InstId} = NewConfig) ->
             case do_create_dry_run(Config) of
                 ok ->
                     do_remove(Mod, InstId, WidgetState),
-                    do_create(Config)
+                    do_create(Config);
                 Error ->
                     Error
             end;
@@ -309,7 +309,7 @@ proc_name(Mod, Id) ->
 
 get_cbk_mod_of_widget(WidgetType) ->
     try Mod = binary_to_existing_atom(WidgetType, latin1),
-        case is_widget_mod(Mod) of
+        case emqx_widget:is_widget_mod(Mod) of
             true -> {ok, Mod};
             false -> {error, {invalid, WidgetType}}
         end
