@@ -18,6 +18,8 @@
 
 -behaviour(gen_server).
 
+-include("emqx_widget.hrl").
+
 -export([start_link/2]).
 
 -compile({no_auto_import,
@@ -34,9 +36,9 @@
         ]).
 
 %% invoke the callbacks of a instance
--export([ call/2   %% call the instance
-        , start/2  %% start the instance
-        , start/3  %% start the instance with after_called()
+-export([ query/2  %% query the instance
+        , query/3  %% query the instance with after_query()
+        , restart/1  %% restart the instance
         , health_check/2 %% verify if the widget is working normally
         , stop/1   %% stop the instance
         ]).
@@ -50,6 +52,10 @@
 %% for debug purposes
 -export([dump/0]).
 
+-export([ hash_call/2
+        , hash_call/3
+        ]).
+
 %% gen_server Callbacks
 -export([ init/1
         , handle_call/3
@@ -60,7 +66,7 @@
         ]).
 
 dump() ->
-    io:format("Instances: ~p~n", [ets:tab2list(?MODULE)]).
+    io:format("Instances: ~p~n", [ets:tab2list(?WIDGET_INST_TAB)]).
 
 %%------------------------------------------------------------------------------
 %% Start the registry
@@ -70,18 +76,67 @@ start_link(Pool, Id) ->
     gen_server:start_link({local, proc_name(?MODULE, Id)},
                           ?MODULE, [Pool, Id], []).
 
--spec create(widget_config()) -> {ok, widget_state()} | {error, Reason :: term()}.
-create(#{<<"widget_name">> := WidgetName} = Config) ->
-    InstId = maps:get(<<"id">>, Config, gen_inst_id(WidgetName)),
-    call(InstId, {create, Config}).
+%% call the worker by the hash of widget-instance-id, to make sure we always handle
+%% operations on the same instance in the same worker.
+hash_call(InstId, Request) ->
+    hash_call(InstId, Request, infinity).
 
--spec create_dry_run(widget_config()) -> {ok, widget_state()} | {error, Reason :: term()}.
-create_dry_run(#{<<"widget_name">> := WidgetName} = Config) ->
-    InstId = maps:get(<<"id">>, Config, gen_inst_id(WidgetName)),
-    call(InstId, {create_dry_run, Config}).
+hash_call(InstId, Request, Timeout) ->
+    gen_server:call(pick(InstId), Request, Timeout).
 
-call(InstId, Request) ->
-    gen_server:call(pick(InstId), Request, infinity).
+-spec create(widget_config()) -> ok | {error, Reason :: term()}.
+create(Config) ->
+    create(create, Config).
+
+-spec create_dry_run(widget_config()) -> ok | {error, Reason :: term()}.
+create_dry_run(Config) ->
+    create(create_dry_run, Config).
+create(CreateType, #{<<"widget_type">> := _} = Config) ->
+    ?CLUSTER_CALL(hash_call, [InstId, {CreateType, Config}], {ok, _}).
+
+-spec update(widget_config()) -> ok | {error, Reason :: term()}.
+update(#{<<"id">> := InstId} = Config) ->
+    ?CLUSTER_CALL(hash_call, [InstId, {update, Config}], {ok, _}).
+
+-spec remove(instance_id()) -> ok | {error, Reason :: term()}.
+remove(InstId) ->
+    ?CLUSTER_CALL(hash_call, [InstId, {remove, InstId}], {ok, _}).
+
+-spec query(instance_id(), Request :: term()) -> Result :: term()}.
+query(InstId, Request) ->
+    query(InstId, Request, undefined).
+
+%% same to above, also defines what to do when the Module:on_query success or failed
+%% it is the duty of the Moudle to apply the `after_query()` functions.
+-spec query(instance_id(), Request :: term(), after_query()) -> Result :: term()}.
+query(InstId, Request, AfterQuery) ->
+    case get(InstId) of
+        {ok, #{mod := Mod, state := WidgetState}} ->
+            %% the widget state is readonly to Moudle:on_query/4
+            %% and the `after_query()` functions should be thread safe
+            Mod:on_query(InstId, Request, AfterQuery, WidgetState);
+        {error, Reason} ->
+            error(get_instance, Reason)
+    end.
+
+%% call the Module:on_start/2
+-spec restart(instance_id()) -> ok | {error, Reason :: term()}.
+restart(InstId) ->
+    hash_call(InstId, {restart, InstId}).
+
+-spec stop(instance_id()) -> ok | {error, Reason :: term()}.
+stop(InstId) ->
+    hash_call(InstId, {stop, InstId}).
+
+-spec health_check(instance_id()) -> ok | {error, Reason :: term()}.
+health_check(InstId) ->
+    hash_call(InstId, {health_check, InstId}).
+
+get(InstId) ->
+    case ets:lookup(InstId) of
+        [] -> {error, not_found};
+        [{_, Data}] -> {ok, Data}
+    end.
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -91,7 +146,30 @@ init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 
+handle_call({create, Config}, _From, State) ->
+    {reply, do_create(Config), State};
+
+handle_call({create_dry_run, Config}, _From, State) ->
+    {reply, do_create_dry_run(Config), State};
+
+handle_call({update, Config}, _From,
+        State) ->
+    {reply, do_update(Config), State};
+
+handle_call({remove, InstId}, _From, State) ->
+    {reply, remove_instance(InstId), State};
+
+handle_call({restart, InstId}, _From, State) ->
+    {reply, do_restart(InstId), State};
+
+handle_call({stop, InstId}, _From, State) ->
+    {reply, do_stop(InstId), State};
+
+handle_call({health_check, InstId}, _From, State) ->
+    {reply, do_health_check(InstId), State};
+
 handle_call(Req, _From, State) ->
+    logger:error("Received unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
@@ -107,95 +185,143 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%------------------------------------------------------------------------------
-%% APIs
+start_instance(WidgetType, InstId, Config) ->
+    case get_cbk_mod_of_widget(WidgetType) of
+        {ok, Mod} ->
+            InstId = maps:get(<<"id">>, Config, gen_inst_id(WidgetType)),
+            case mod_start(Mod, InstId, Config) of
+                {ok, WidgetState} -> {ok, Mod, InstId, WidgetState};
+                {error, Reason} -> {error, Reason}
+            end;
+        Error -> Error
+    end.
+
+do_create(#{<<"widget_type">> := WidgetType} = Config) ->
+    case start_instance(WidgetType, Config) of
+        {ok, Mod, InstId, WidgetState} ->
+            ets:insert(?WIDGET_INST_TAB, {InstId, #{mod => Mod, config => Config,
+                state => WidgetState, status => started}}),
+            ok
+        {error, Reason} ->
+            logger:error("start ~s widget ~s failed: ~p", [WidgetType, Reason]),
+            {error, Reason}
+    end.
+
+do_create_dry_run(#{<<"widget_type">> := WidgetType} = Config) ->
+    case start_instance(WidgetType, Config) of
+        {ok, Mod, InstId, WidgetState0} ->
+            case mod_health_check(Mod, InstId, WidgetState0) of
+                {ok, WidgetState1} ->
+                    _ = mod_stop(Mod, InstId, WidgetState1),
+                    ok;
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_remove(InstId) ->
+    case get(InstId) of
+        {ok, #{mod := Mod, state := WidgetState}} ->
+            do_remove(Mod, InstId, WidgetState);
+        Error ->
+            Error
+    end.
+
+do_remove(Mod, InstId, WidgetState) ->
+    _ = mod_stop(Mod, InstId, WidgetState),
+    ets:delete(?WIDGET_INST_TAB, InstId),
+    ok.
+
+do_update(#{<<"Id">> := InstId} = NewConfig) ->
+    case get(InstId) of
+        {ok, #{mod := Mod, state := WidgetState, config := OldConfig}} ->
+            Config = maps:merge(OldConfig, NewConfig),
+            case do_create_dry_run(Config) of
+                ok ->
+                    do_remove(Mod, InstId, WidgetState),
+                    do_create(Config)
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end.
+
+do_restart(InstId) ->
+    case get(InstId) of
+        {ok, #{mod := Mod, state := WidgetState, config := Config} = Data} ->
+            _ = mod_stop(Mod, InstId, WidgetState),
+            case mod_start(Mod, InstId, Config) of
+                {ok, WidgetState} ->
+                    ets:insert(?WIDGET_INST_TAB, {InstId, Data#{state => WidgetState, status => started}}),
+                    ok;
+                {error, Reason} ->
+                    ets:insert(?WIDGET_INST_TAB, {InstId, Data#{status => stopped}}),
+                    {error, Reason}
+            end;
+        Error ->
+            Error
+    end.
+
+do_stop(InstId) ->
+    case get(InstId) of
+        {ok, #{mod := Mod, state := WidgetState} = Data} ->
+            _ = mod_stop(Mod, InstId, WidgetState),
+            ets:insert(?WIDGET_INST_TAB, {InstId, Data#{status => stopped}}),
+            ok;
+        Error ->
+            Error
+    end.
+
+do_health_check(InstId) ->
+    case get(InstId) of
+        {ok, #{mod := Mod, state := WidgetState0} = Data} ->
+            case mod_health_check(Mod, InstId, WidgetState0) of
+                {ok, WidgetState1} ->
+                    ets:insert(?WIDGET_INST_TAB, {InstId, Data#{status => started, state => WidgetState1}}),
+                    ok;
+                {error, Reason} ->
+                    logger:error("health check for ~p failed: ~p", [InstId, Reason]),
+                    ets:insert(?WIDGET_INST_TAB, {InstId, Data#{status => stopped}}),
+                    {error, Reason}
+            end;
+        Error ->
+            Error
+    end.
+
+mod_start(Mod, InstId, Config) ->
+    ?SAFE_CALL(Mod:on_start(InstId, Config)).
+
+mod_health_check(Mod, InstId, WidgetState) ->
+    ?SAFE_CALL(Mod:on_health_check(InstId, WidgetState)).
+
+mod_stop(Mod, InstId, WidgetState) ->
+    ?SAFE_CALL(Mod:on_stop(InstId, WidgetState)).
+
 %%------------------------------------------------------------------------------
-
-%% call the Module:on_start/2
--spec start(widget_name(), widget_config()) -> {ok, widget_state()} | {error, Reason :: term()}.
-start(WidgetName, Config) ->
-    start(WidgetName, Config, undefined).
-
-%% same to above, also defines what to do when the Module:on_call success or failed
--spec start(widget_name(), widget_config(), after_called()) ->
-    {ok, instance_id()} | {error, Reason :: term()}.
-start(WidgetName, Config, AfterCalled) ->
-    Mod = binary_to_existing_atom(WidgetName, latin1),
-    Mod:on_start(gen_inst_id(maps:get(id, Config, gen_id())), Config).
-
--spec call(instance_id(), Request :: term()) -> Result :: term().
-call(InstId, Request) ->
-    Mod = cbk_mod(InstId),
-    Mod:on_call(InstId, Request, get_state(InstId)).
-
--spec stop(instance_id()) -> Result :: term().
-stop(InstId) ->
-    Mod = cbk_mod(InstId),
-    Mod:on_stop(InstId, get_state(InstId)).
+%% internal functions
+%%------------------------------------------------------------------------------
 
 proc_name(Mod, Id) ->
     list_to_atom(lists:concat([Mod, "_", Id])).
 
-cbk_mod(InstId) ->
-    [WidgetName, _Id] = string:split(InstId, ":"),
-    binary_to_existing_atom(WidgetName, latin1).
-
-create_rule(Params = #{rawsql := Sql, actions := ActArgs}) ->
-    case emqx_rule_sqlparser:parse_select(Sql) of
-        {ok, Select} ->
-            RuleId = maps:get(id, Params, gen_inst_id()),
-            Enabled = maps:get(enabled, Params, true),
-            try prepare_actions(ActArgs, Enabled) of
-                Actions ->
-                    Rule = aa,
-                    ok = emqx_rule_registry:add_rule(Rule),
-                    ok = emqx_rule_metrics:create_rule_metrics(RuleId),
-                    {ok, Rule}
-            catch
-                throw:{action_not_found, ActionName} ->
-                    {error, {action_not_found, ActionName}};
-                throw:Reason ->
-                    {error, Reason}
-            end;
-        Reason -> {error, Reason}
-    end.
-
--spec(update_rule(#{id := binary(), _=>_}) -> {ok, rule()} | {error, {not_found, gen_inst_id()}}).
-update_rule(Params = #{id := RuleId}) ->
-    case emqx_rule_registry:get_rule(RuleId) of
-        {ok, Rule0} ->
-            try may_update_rule_params(Rule0, Params) of
-                Rule ->
-                    ok = emqx_rule_registry:add_rule(Rule),
-                    {ok, Rule}
-            catch
-                throw:Reason ->
-                    {error, Reason}
-            end;
-        not_found ->
-            {error, {not_found, RuleId}}
-    end.
-
--spec(delete_rule(RuleId :: gen_inst_id()) -> ok).
-delete_rule(RuleId) ->
-    case emqx_rule_registry:get_rule(RuleId) of
-        {ok, Rule = #rule{actions = Actions}} ->
-            try
-                _ = ?CLUSTER_CALL(clear_rule, [Rule]),
-                ok = emqx_rule_registry:remove_rule(Rule)
-            catch
-                Error:Reason:ST ->
-                    ?LOG(error, "clear_rule ~p failed: ~p", [RuleId, {Error, Reason, ST}]),
-                    refresh_actions(Actions)
-            end;
-        not_found ->
-            ok
+get_cbk_mod_of_widget(WidgetType) ->
+    try Mod = binary_to_existing_atom(WidgetType, latin1),
+        case is_widget_mod(Mod) of
+            true -> {ok, Mod};
+            false -> {error, {invalid, WidgetType}}
+        end
+    catch error:badarg ->
+        {error, {not_found, WidgetType}}
     end.
 
 pick(InstId) ->
     gproc_pool:pick_worker(emqx_widget_instance, InstId).
 
-gen_inst_id(WidgetName) ->
-    gen_id(WidgetName, fun emqx_widget_registry:get_widget_inst/1).
+gen_inst_id(WidgetType) ->
+    gen_id(WidgetType, fun emqx_widget_registry:get_widget_inst/1).
 
 gen_id(Prefix, TestFun) ->
     Id = iolist_to_binary([Prefix, ":", emqx_rule_id:gen()]),

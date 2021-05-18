@@ -30,7 +30,7 @@
 
 -define(EXT, "*.wgt").
 
--type after_called() :: {OnSuccess :: after_called_fun(), OnFailed :: after_called_fun()} |
+-type after_query() :: {OnSuccess :: after_query_fun(), OnFailed :: after_query_fun()} |
     undefined.
 
 %% when calling emqx_widget_instance:start/1
@@ -40,8 +40,8 @@
 %% when calling emqx_widget_instance:stop/1
 -callback on_stop(instance_id(), widget_state()) -> term().
 
-%% when calling emqx_widget_instance:call/1,2
--callback on_call(instance_id(), widget_state()) -> term().
+%% when calling emqx_widget_instance:query/3
+-callback on_query(instance_id(), Request :: term(), widget_state()) -> term().
 
 %% when calling emqx_widget_instance:health_check/2
 -callback on_health_check(instance_id(), widget_state()) ->

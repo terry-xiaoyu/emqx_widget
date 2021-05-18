@@ -12,7 +12,7 @@
 -export([init/1]).
 
 -define(WIDGET_INST_MOD, emqx_widget_instance).
--define(POOL_SIZE, 64). %% set a pool size in case all the workers busy
+-define(POOL_SIZE, 64). %% set a very large pool size in case all the workers busy
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
