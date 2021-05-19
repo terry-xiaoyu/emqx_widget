@@ -1,2 +1,2 @@
 -behaviour(emqx_widget).
-
+-widget_spec("log_tracer.wgt").

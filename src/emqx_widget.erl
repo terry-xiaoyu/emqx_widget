@@ -24,7 +24,9 @@
 
 -export([ get/1
         , list/0
-        , discover_widget_mods/0
+        ]).
+
+-export([ discover_widget_mods/0
         , is_widget_mod/1
         ]).
 

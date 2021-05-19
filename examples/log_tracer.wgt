@@ -1,43 +1,64 @@
 title: "the log tracer"
 description: "the log tracer is a log handler for tracing a topic or clientid"
-schema: [
+groups: [
+  {name: general, fields: [condition, level]},
+  {name: advanced, fields: [enable_cache, cache_logs_in, cache_log_dir, bulk]}
+]
+layout: [
   {
-    name: type
-    type: string
-    enum: [topic, clientid]
-    required: true
-    title: "The type of the log tracer"
-    description: """You can trace on either a topic or a clientid"""
-  },
-  {
-    name: value
-    type: string
-    required: true
-    title: "The topic or clientid you want to trace"
-    description: """Provide the value of the topic or clientid you want to trace"""
+    name: condition
+    input: grid
+    placeholder: {"clientid": "abc", "topic": "t/#"}
+    datatype: object
+    default: {}
+    title: "The key and value pairs of the logger metadata"
+    description: """When a log message contains a metadata key and also the value matches the value.
+If multiple conditions are provided, they will be combined as "or"."""
   },
   {
     name: level
-    type: string
-    enum: [debug, info, notice, warning, error, critical, alert, emergency]
+    input: dropdown_list
+    type: enum
+    items: [debug, info, notice, warning, error, critical, alert, emergency]
     default: debug
     title: "The log severity level"
-    description: """Only the messages with severity level higher than or equal to
-        this level will be logged"""
+    description: """Only the messages with severity level higher than or equal to this level will be logged."""
   },
   {
-    name: dir
+    name: enable_cache
+    input: toggle_switch
+    type: boolean
+    default: true
+    title: "Enabled log message caching"
+    description: """The field cache_logs_in is visible only when enable_cache is true.
+Note that this field is not necessary but I put it here only for demo."""
+  },
+  {
+    name: cache_logs_in
+    input: dropdown_list
+    type: enum
+    items: [memory, file]
+    required: true
+    default: memory
+    visible: ${rules.if_cached_enabled}
+    title: "Cache the log messages in memory or files"
+    description: """If set to file, change the cache_log_dir for the directory of log files"""
+  },
+  {
+    name: cache_log_dir
+    input: text
+    placeholder: "/tmp"
     type: string
     format: file_path
     required: false
     default: "/tmp"
+    visible: ${rules.if_cache_to_file}
     title: "The dir where the log messages should go"
-    description: """The log messages will be cached to a file in
-        this dir, and you can the unread messages by calling the
-        `next_batch` API"""
+    description: """The log messages will be cached to a file in this dir, and you can the unread messages by calling the `next_batch` API"""
   },
   {
     name: bulk
+    input: text
     type: size
     required: false
     default: 1KB
@@ -46,3 +67,26 @@ schema: [
         when calling the `next_batch` API"""
   },
 ]
+
+## Cond: {key: Key, value: Value}
+## Rule: Cond | {and: [Cond | Rule]} | {or: [Cond | Rule]}
+##
+## Cond Example: {key: 'use_ssl', value: "true"}
+## Rule Example:
+## { and: [
+##     Cond1,
+##     {or: [Cond2, Cond3]}
+##   ]
+## }
+
+{key: 'use_ssl', value: "true"}
+
+rules: {
+  if_cached_enabled: {key: "enable_cache", value: "true"}
+  if_cache_to_file: {
+    and: [
+      ${if_cached_enabled},
+      {key: "cache_logs_in", value: "file"}
+    ]
+  }
+}
