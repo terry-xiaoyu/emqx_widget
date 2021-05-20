@@ -137,7 +137,7 @@ query(InstId, Request, AfterQuery) ->
             %% and the `after_query()` functions should be thread safe
             Mod:on_query(InstId, Request, AfterQuery, WidgetState);
         {error, Reason} ->
-            error(get_instance, Reason)
+            error({get_instance, {InstId, Reason}})
     end.
 
 %% call the Module:on_start/2
