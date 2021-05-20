@@ -2,18 +2,28 @@
 
 -define(CLUSTER_CALL(Func, Args, ResParttern),
 %% ekka_mnesia:running_nodes()
-    fun() -> case rpc:multicall([node()|nodes()], ?MODULE, Func, Args, 5000) of
-        {ResL, []} ->
-            case lists:filter(fun(ResParttern) -> false; (_) -> true end, ResL) of
-                [] -> ResL;
-                ErrL ->
-                    logger:error("cluster_call error found, ResL: ~p", [ResL]),
-                    throw({Func, ErrL})
-            end;
-        {ResL, BadNodes} ->
-            logger:error("cluster_call bad nodes found: ~p, ResL: ~p", [BadNodes, ResL]),
-            throw({Func, {failed_on_nodes, BadNodes}})
-    end end()).
+    fun() ->
+        case erlang:apply(?MODULE, Func, Args) of
+            ResParttern ->
+                case rpc:multicall(nodes(), ?MODULE, Func, Args, 5000) of
+                {ResL, []} ->
+                    Filter = fun
+                        (ResParttern0) when ResParttern0 =:= ResParttern -> false;
+                        ({badrpc, {'EXIT', {undef, [{?MODULE, Func0, _, []}]}}})
+                            when Func0 =:= Func -> false;
+                        (_) -> true
+                    end,
+                    case lists:filter(Filter, ResL) of
+                        [] -> ok;
+                        ErrL -> {error, ErrL}
+                    end;
+                {ResL, BadNodes} ->
+                    {error, {failed_on_nodes, BadNodes, ResL}}
+                end;
+            ErrorResult ->
+                {error, ErrorResult}
+        end
+    end()).
 
 -define(SAFE_CALL(_EXP_),
         ?SAFE_CALL(_EXP_, _ = do_nothing)).
