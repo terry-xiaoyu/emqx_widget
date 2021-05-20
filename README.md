@@ -19,7 +19,38 @@ After restarting the emqx_widget, it re-creates all the widget instances.
 There can be foreign references between widget instances via widget-id.
 So they may find each other via this Id.
 
-Build
------
+Try it out
+----------
 
-    $ rebar3 compile
+    $ ./demo.sh
+    Eshell V11.1.8  (abort with ^G)
+    1> == the demo log tracer <<"log_tracer_clientid_shawn">> started.
+    config: #{<<"configs">> =>
+                #{<<"bulk">> => <<"10KB">>,<<"cache_log_dir">> => <<"/tmp">>,
+                    <<"condition">> => #{<<"clientid">> => <<"abc">>},
+                    <<"level">> => <<"debug">>},
+            <<"id">> => <<"log_tracer_clientid_shawn">>,
+            <<"widget_type">> => <<"log_tracer">>}
+    1> emqx_widget_instance:health_check(<<"log_tracer_clientid_shawn">>).
+    == the demo log tracer <<"log_tracer_clientid_shawn">> is working well
+    state: #{health_checked => 1,logger_handler_id => abc}
+    ok
+
+    2> emqx_widget_instance:health_check(<<"log_tracer_clientid_shawn">>).
+    == the demo log tracer <<"log_tracer_clientid_shawn">> is working well
+    state: #{health_checked => 2,logger_handler_id => abc}
+    ok
+
+    3> emqx_widget_instance:query(<<"log_tracer_clientid_shawn">>, get_log).
+    == the demo log tracer <<"log_tracer_clientid_shawn">> received request: get_log
+    state: #{health_checked => 2,logger_handler_id => abc}
+    "this is a demo log messages..."
+
+    4> emqx_widget_instance:remove(<<"log_tracer_clientid_shawn">>).
+    == the demo log tracer <<"log_tracer_clientid_shawn">> stopped.
+    state: #{health_checked => 0,logger_handler_id => abc}
+    ok
+
+    5> emqx_widget_instance:query(<<"log_tracer_clientid_shawn">>, get_log).
+    ** exception error: {get_instance,{<<"log_tracer_clientid_shawn">>,not_found}}
+
