@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include("emqx_widget.hrl").
+-include("emqx_widget_utils.hrl").
 
 -export([start_link/2]).
 
