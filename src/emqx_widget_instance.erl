@@ -27,6 +27,9 @@
           [ get/1
           ]}).
 
+%% load widget instances from *.conf files
+-export([load/1]).
+
 %% Sync widget instances and files
 %% provisional solution: rpc:multical to all the nodes for creating/updating/removing
 %% todo: replicate operations
@@ -68,7 +71,7 @@
         ]).
 
 dump() ->
-    io:format("Instances: ~p~n", [ets:tab2list(?WIDGET_INST_TAB)]).
+    io:format("Instances: ~p~n", [ets:tab2list(emqx_widget_instance)]).
 
 %%------------------------------------------------------------------------------
 %% Start the registry
@@ -86,6 +89,22 @@ hash_call(InstId, Request) ->
 hash_call(InstId, Request, Timeout) ->
     gen_server:call(pick(InstId), Request, Timeout).
 
+-spec load(Path :: string()) -> ok.
+load(Path) ->
+    lists:foreach(fun load_file/1, filelib:wildcard(filename:join([Path, "*.conf"]))).
+
+load_file(File) ->
+    case hocon:load(File, #{format => map}) of
+         {ok, Conf} ->
+            case ?SAFE_CALL(do_create(Conf)) of
+                ok -> ok;
+                {error, Reason} ->
+                    logger:error("load widget instance from ~p failed: ~p", [File, Reason])
+            end;
+         {error, Reason} ->
+             logger:error("load widget from ~p failed: ~p", [File, Reason])
+     end.
+
 -spec create(widget_config()) -> ok | {error, Reason :: term()}.
 create(Config) ->
     create(create, Config).
@@ -93,16 +112,16 @@ create(Config) ->
 -spec create_dry_run(widget_config()) -> ok | {error, Reason :: term()}.
 create_dry_run(Config) ->
     create(create_dry_run, Config).
-create(CreateType, #{<<"widget_type">> := _} = Config) ->
-    ?CLUSTER_CALL(hash_call, [{CreateType, Config}], {ok, _}).
+create(CreateType, #{<<"id">> := InstId, <<"widget_type">> := _} = Config) ->
+    ?CLUSTER_CALL(hash_call, [InstId, {CreateType, Config}]).
 
 -spec update(widget_config()) -> ok | {error, Reason :: term()}.
 update(#{<<"id">> := InstId} = Config) ->
-    ?CLUSTER_CALL(hash_call, [InstId, {update, Config}], {ok, _}).
+    ?CLUSTER_CALL(hash_call, [InstId, {update, Config}]).
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
-    ?CLUSTER_CALL(hash_call, [InstId, {remove, InstId}], {ok, _}).
+    ?CLUSTER_CALL(hash_call, [InstId, {remove, InstId}]).
 
 -spec query(instance_id(), Request :: term()) -> Result :: term().
 query(InstId, Request) ->
@@ -136,14 +155,14 @@ health_check(InstId) ->
 
 -spec get(instance_id()) -> {ok, widget_data()} | {error, Reason :: term()}.
 get(InstId) ->
-    case ets:lookup(?WIDGET_INST_TAB, InstId) of
+    case ets:lookup(emqx_widget_instance, InstId) of
         [] -> {error, not_found};
         [{_, Data}] -> {ok, Data}
     end.
 
 -spec get_by_type(module()) -> [widget_data()].
 get_by_type(Mod) ->
-    [Data || #{mod := Mod0} = Data <- ets:tab2list(?WIDGET_INST_TAB), Mod0 =:= Mod].
+    [Data || #{mod := Mod0} = Data <- ets:tab2list(emqx_widget_instance), Mod0 =:= Mod].
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -192,10 +211,9 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%------------------------------------------------------------------------------
-start_instance(#{<<"widget_type">> := WidgetType} = Config) ->
+start_instance(#{<<"id">> := InstId, <<"widget_type">> := WidgetType} = Config) ->
     case get_cbk_mod_of_widget(WidgetType) of
         {ok, Mod} ->
-            InstId = maps:get(<<"id">>, Config, gen_inst_id(WidgetType)),
             case mod_start(Mod, InstId, Config) of
                 {ok, WidgetState} -> {ok, Mod, InstId, WidgetState};
                 {error, Reason} -> {error, Reason}
@@ -203,15 +221,19 @@ start_instance(#{<<"widget_type">> := WidgetType} = Config) ->
         Error -> Error
     end.
 
-do_create(#{<<"widget_type">> := WidgetType} = Config) ->
-    case start_instance(Config) of
-        {ok, Mod, InstId, WidgetState} ->
-            ets:insert(?WIDGET_INST_TAB, {InstId, #{mod => Mod, config => Config,
-                state => WidgetState, status => started}}),
-            ok;
-        {error, Reason} ->
-            logger:error("start ~s widget ~s failed: ~p", [WidgetType, Reason]),
-            {error, Reason}
+do_create(#{<<"id">> := InstId, <<"widget_type">> := WidgetType} = Config) ->
+    case get(InstId) of
+        {ok, _} -> {error, already_created};
+        _ ->
+            case start_instance(Config) of
+                {ok, Mod, InstId, WidgetState} ->
+                    ets:insert(emqx_widget_instance, {InstId, #{mod => Mod, config => Config,
+                        state => WidgetState, status => started}}),
+                    ok;
+                {error, Reason} ->
+                    logger:error("start ~s widget ~s failed: ~p", [WidgetType, InstId, Reason]),
+                    {error, Reason}
+            end
     end.
 
 do_create_dry_run(Config) ->
@@ -238,7 +260,7 @@ do_remove(InstId) ->
 
 do_remove(Mod, InstId, WidgetState) ->
     _ = mod_stop(Mod, InstId, WidgetState),
-    ets:delete(?WIDGET_INST_TAB, InstId),
+    ets:delete(emqx_widget_instance, InstId),
     ok.
 
 do_update(#{<<"Id">> := InstId} = NewConfig) ->
@@ -262,10 +284,10 @@ do_restart(InstId) ->
             _ = mod_stop(Mod, InstId, WidgetState),
             case mod_start(Mod, InstId, Config) of
                 {ok, WidgetState} ->
-                    ets:insert(?WIDGET_INST_TAB, {InstId, Data#{state => WidgetState, status => started}}),
+                    ets:insert(emqx_widget_instance, {InstId, Data#{state => WidgetState, status => started}}),
                     ok;
                 {error, Reason} ->
-                    ets:insert(?WIDGET_INST_TAB, {InstId, Data#{status => stopped}}),
+                    ets:insert(emqx_widget_instance, {InstId, Data#{status => stopped}}),
                     {error, Reason}
             end;
         Error ->
@@ -276,7 +298,7 @@ do_stop(InstId) ->
     case get(InstId) of
         {ok, #{mod := Mod, state := WidgetState} = Data} ->
             _ = mod_stop(Mod, InstId, WidgetState),
-            ets:insert(?WIDGET_INST_TAB, {InstId, Data#{status => stopped}}),
+            ets:insert(emqx_widget_instance, {InstId, Data#{status => stopped}}),
             ok;
         Error ->
             Error
@@ -287,11 +309,11 @@ do_health_check(InstId) ->
         {ok, #{mod := Mod, state := WidgetState0} = Data} ->
             case mod_health_check(Mod, InstId, WidgetState0) of
                 {ok, WidgetState1} ->
-                    ets:insert(?WIDGET_INST_TAB, {InstId, Data#{status => started, state => WidgetState1}}),
+                    ets:insert(emqx_widget_instance, {InstId, Data#{status => started, state => WidgetState1}}),
                     ok;
                 {error, Reason} ->
                     logger:error("health check for ~p failed: ~p", [InstId, Reason]),
-                    ets:insert(?WIDGET_INST_TAB, {InstId, Data#{status => stopped}}),
+                    ets:insert(emqx_widget_instance, {InstId, Data#{status => stopped}}),
                     {error, Reason}
             end;
         Error ->
@@ -318,7 +340,7 @@ get_cbk_mod_of_widget(WidgetType) ->
     try Mod = binary_to_existing_atom(WidgetType, latin1),
         case emqx_widget:is_widget_mod(Mod) of
             true -> {ok, Mod};
-            false -> {error, {invalid, WidgetType}}
+            false -> {error, {invalid_widget, Mod}}
         end
     catch error:badarg ->
         {error, {not_found, WidgetType}}
@@ -326,14 +348,3 @@ get_cbk_mod_of_widget(WidgetType) ->
 
 pick(InstId) ->
     gproc_pool:pick_worker(emqx_widget_instance, InstId).
-
-gen_inst_id(WidgetType) ->
-    gen_id(WidgetType, fun emqx_widget_registry:get_widget_inst/1).
-
-gen_id(Prefix, TestFun) ->
-    Id = iolist_to_binary([Prefix, ":", emqx_rule_id:gen()]),
-    case TestFun(Id) of
-        not_found -> Id;
-        _Res -> gen_id(Prefix, TestFun)
-    end.
-

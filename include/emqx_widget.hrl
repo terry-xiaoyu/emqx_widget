@@ -1,4 +1,3 @@
--type args() :: term().
 -type widget_type() :: binary().
 -type instance_id() :: binary().
 -type widget_config() :: map().
@@ -11,8 +10,9 @@
     status => started | stopped
 }.
 
--type after_query_fun() :: {fun((widget_state(), args()) -> ok), args()}.
 -type after_query() :: {OnSuccess :: after_query_fun(), OnFailed :: after_query_fun()} |
     undefined.
 
--define(WIDGET_INST_TAB, emqx_widget_instance).
+%% the `after_query_fun()` is mainly for callbacks that increment counters or do some fallback
+%% actions upon query failure
+-type after_query_fun() :: {fun((...) -> ok), Args :: [term()]}.

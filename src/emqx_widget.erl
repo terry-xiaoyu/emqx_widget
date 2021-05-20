@@ -17,6 +17,7 @@
 -module(emqx_widget).
 
 -include("emqx_widget.hrl").
+-include("emqx_widget_utils.hrl").
 
 -compile({no_auto_import,
           [ get/1
@@ -30,6 +31,10 @@
         , is_widget_mod/1
         ]).
 
+-export([ query_success/1
+        , query_failed/1
+        ]).
+
 -define(EXT, "*.wgt").
 
 %% when calling emqx_widget_instance:start/1
@@ -40,7 +45,7 @@
 -callback on_stop(instance_id(), widget_state()) -> term().
 
 %% when calling emqx_widget_instance:query/3
--callback on_query(instance_id(), Request :: term(), widget_state()) -> term().
+-callback on_query(instance_id(), Request :: term(), after_query(), widget_state()) -> term().
 
 %% when calling emqx_widget_instance:health_check/2
 -callback on_health_check(instance_id(), widget_state()) ->
@@ -60,7 +65,7 @@ get(Mod) ->
 
 -spec get_spec(module()) -> widget_spec().
 get_spec(Mod) ->
-    Mod:emqx_widget_spec().
+    maps:put(<<"widget_type">>, Mod, Mod:emqx_widget_spec()).
 
 -spec discover_widget_mods() -> list(module()).
 discover_widget_mods() ->
@@ -70,17 +75,18 @@ discover_widget_mods() ->
 is_widget_mod(Mod) ->
     erlang:function_exported(Mod, emqx_widget_spec, 0).
 
+-spec query_success(after_query()) -> ok.
+query_success(undefined) -> ok;
+query_success({{OnSucc, Args}, _}) ->
+    safe_apply(OnSucc, Args).
+
+-spec query_failed(after_query()) -> ok.
+query_failed(undefined) -> ok;
+query_failed({_, {OnFailed, Args}}) ->
+    safe_apply(OnFailed, Args).
+
 %% =================================================================================
 
-% load_spec_file(File) ->
-%     case hocon:load(File, #{format => map, convert => [duration, bytesize, percent]}) of
-%         {ok, Widget0} ->
-%             case emqx_widget_validator:validate_spec(Widget0) of
-%                 ok -> Widget0;
-%                 {error, Reason} ->
-%                     logger:error("validate widget ~p failed: ~p", [File, Reason])
-%             end;
-%         {error, Reason} ->
-%             logger:error("load widget from ~p failed: ~p", [File, Reason])
-%     end.
+safe_apply(Func, Args) ->
+    ?SAFE_CALL(erlang:apply(Func, Args)).
 

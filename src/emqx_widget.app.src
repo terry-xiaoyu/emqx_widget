@@ -5,7 +5,10 @@
   {mod, {emqx_widget_app, []}},
   {applications,
    [kernel,
-    stdlib
+    stdlib,
+    gproc,
+    hocon,
+    jiffy
    ]},
   {env,[]},
   {modules, []},

@@ -1,0 +1,2 @@
+-behaviour(emqx_widget).
+-compile({parse_transform, emqx_widget_transform}).

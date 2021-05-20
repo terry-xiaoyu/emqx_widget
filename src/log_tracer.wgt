@@ -88,7 +88,7 @@ rules: {
   if_cached_enabled: {key: "enable_cache", value: "true"}
   if_cache_to_file: {
     and: [
-      ${if_cached_enabled},
+      ${rules.if_cached_enabled},
       {key: "cache_logs_in", value: "file"}
     ]
   }

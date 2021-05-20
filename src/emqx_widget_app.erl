@@ -23,8 +23,6 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    TabOpts = [named_table, set, public, {read_concurrency, true}],
-    _ = ets:new(?WIDGET_INST_TAB, TabOpts),
     emqx_widget_sup:start_link().
 
 stop(_State) ->

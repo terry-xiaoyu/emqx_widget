@@ -18,6 +18,9 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
+    TabOpts = [named_table, set, public, {read_concurrency, true}],
+    _ = ets:new(emqx_widget_instance, TabOpts),
+
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
     Pool = ?WIDGET_INST_MOD,
     Mod = ?WIDGET_INST_MOD,
