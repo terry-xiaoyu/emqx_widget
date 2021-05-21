@@ -14,24 +14,21 @@ layout: [condition, level, enable_cache, cache_logs_in, cache_log_dir, bulk]
 
 fields: {
   condition: {
-    input: grid
-    placeholder: {"clientid": "abc", "topic": "t/#"}
-    datatype: object
-    default: {}
+    type: object
+    default: {"clientid": "abc", "topic": "t/#"}
+    format: table ## table | jsonstr
     title: "The key and value pairs of the logger metadata"
     description: """When a log message contains a metadata key and also the value matches the value.
 If multiple conditions are provided, they will be combined as "or"."""
   },
   level: {
-    input: dropdown_list
     type: enum
-    items: [debug, info, notice, warning, error, critical, alert, emergency]
+    enum: [debug, info, notice, warning, error, critical, alert, emergency]
     default: debug
     title: "The log severity level"
     description: """Only the messages with severity level higher than or equal to this level will be logged."""
   },
   enable_cache: {
-    input: toggle_switch
     type: boolean
     default: true
     title: "Enabled log message caching"
@@ -39,7 +36,6 @@ If multiple conditions are provided, they will be combined as "or"."""
 Note that this field is not necessary but I put it here only for demo."""
   },
   cache_logs_in: {
-    input: dropdown_list
     type: enum
     items: [memory, file]
     required: true
@@ -49,21 +45,24 @@ Note that this field is not necessary but I put it here only for demo."""
     description: """If set to file, change the cache_log_dir for the directory of log files"""
   },
   cache_log_dir: {
-    input: textarea
-    placeholder: "/tmp"
+    ## long_string
     type: string
-    format: file_path
+    min: 1
+    max: 256
     required: false
     default: "/tmp"
+    ## builtin_pattern: file_path
+    pattern: "^(.+)\/([^\/]+)$"
     visible: ${rules.if_cache_to_file}
     title: "The dir where the log messages should go"
     description: """The log messages will be cached to a file in this dir, and you can the unread messages by calling the `next_batch` API"""
   },
   bulk: {
-    input: text
     type: size
     required: false
     default: 1KB
+    min: 256B
+    max: 10KB
     title: "The max size of one bulk"
     description: """One bulk is how much log messages will return
         when calling the `next_batch` API"""
