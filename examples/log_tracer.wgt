@@ -1,5 +1,5 @@
 title: "the log tracer"
-description: "the log tracer is a log handler for tracing a topic or clientid"
+description: "the log tracer for creating log handlers for some specific logger metadata"
 
 layout: [condition, level, enable_cache, cache_logs_in, cache_log_dir, bulk]
 
@@ -70,12 +70,11 @@ Note that this field is not necessary but I put it here only for demo."""
 }
 
 ## Define rules to determine if a field visible.
-##  rules: {RuleName: Rule}
 ##
-## Cond: {key: Key, value: Value}
+## Cond: {field: Key, equals: Value}
 ## Rule: Cond | {and: [Cond | Rule]} | {or: [Cond | Rule]}
 ##
-## Cond Example: {key: 'use_ssl', value: "true"}
+## Cond Example: {field: 'use_ssl', equals: "true"}
 ## Rule Example:
 ## { and: [
 ##     Cond1,
@@ -84,11 +83,11 @@ Note that this field is not necessary but I put it here only for demo."""
 ## }
 
 rules: {
-  if_cached_enabled: {key: "enable_cache", value: "true"}
+  if_cached_enabled: {field: "enable_cache", equals: "true"}
   if_cache_to_file: {
     and: [
       ${rules.if_cached_enabled},
-      {key: "cache_logs_in", value: "file"}
+      {field: "cache_logs_in", equals: "file"}
     ]
   }
 }
