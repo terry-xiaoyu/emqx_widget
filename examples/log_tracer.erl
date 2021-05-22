@@ -10,6 +10,9 @@
         , on_health_check/2
         ]).
 
+%% callbacks for schema
+-export([config_transform/1]).
+
 on_start(InstId, Config) ->
     io:format("== the demo log tracer ~p started.~nconfig: ~p~n", [InstId, Config]),
     {ok, #{logger_handler_id => abc, health_checked => 0}}.
@@ -28,3 +31,6 @@ on_health_check(InstId, State = #{health_checked := Checked}) ->
     NState = State#{health_checked => Checked + 1},
     io:format("== the demo log tracer ~p is working well~nstate: ~p~n", [InstId, NState]),
     {ok, NState}.
+
+config_transform(_KeyPath) ->
+    [].

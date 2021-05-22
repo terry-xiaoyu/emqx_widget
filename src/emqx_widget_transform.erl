@@ -5,8 +5,9 @@
 -export([parse_transform/2]).
 
 parse_transform(Forms, _Options) ->
-    trans(proplists:delete(eof, Forms)).
-    %io:format("the result form: ~p~n", [A]).
+    A = trans(proplists:delete(eof, Forms)),
+    merl:print(A),
+    A.
 
 trans(Forms) ->
     forms(Forms) ++ [erl_syntax:revert(erl_syntax:eof_marker())].
@@ -25,25 +26,108 @@ form(Form) ->
         ?Q("-emqx_widget_spec('@File').") ->
             %io:format("----widget attr: ~p, form: ~p~n", [File, Form]),
             {ok, Widget} = hocon:load(erl_syntax:concrete(File), #{format => map}),
-            Fun = ?Q("emqx_widget_spec() -> _@Widget@."),
-            RFun = erl_syntax:revert(Fun),
-            {[?Q("-export([emqx_widget_spec/0]).")],
+            SpecFun = erl_syntax:revert(?Q("emqx_widget_spec() -> _@Widget@.")),
+            SchemaBody = to_schema("configs", maps:get(<<"fields">>, Widget)),
+            SchemaFunc =
+                erl_syntax:revert(?Q(
+                    "fields(\"configs\") -> _@SchemaBody;"
+                    "fields(\"id\") -> fix_str_fields(\"id\");"
+                    "fields(\"widget_type\") -> fix_str_fields(\"widget_type\").")),
+            %merl:print(SchemaFunc),
+            {fix_attrs(),
              [],
-             [RFun]};
+             fix_funcs() ++ [SpecFun, SchemaFunc]};
         _ ->
             %io:format("---other form: ~p~n", [Form]),
             {[], [Form], []}
     end.
 
 
-% load_spec_file(File) ->
-%     case hocon:load(File, #{format => map, convert => [duration, bytesize, percent]}) of
-%         {ok, Widget0} ->
-%             case emqx_widget_validator:validate_spec(Widget0) of
-%                 ok -> Widget0;
-%                 {error, Reason} ->
-%                     logger:error("validate widget ~p failed: ~p", [File, Reason])
-%             end;
-%         {error, Reason} ->
-%             logger:error("load widget from ~p failed: ~p", [File, Reason])
-%     end.
+fix_attrs() ->
+    [ ?Q("-export([emqx_widget_spec/0]).")
+    , ?Q("-export([structs/0, fields/1, translations/0, translation/1]).")
+    , ?Q("-behaviour(hocon_schema).")
+    ].
+fix_funcs() ->
+    [ ?Q("structs() -> [\"id\", \"widget_type\", \"configs\"].")
+    , ?Q("translations() -> [\"configs\"].")
+    , ?Q("translation(\"configs\") -> log_tracer:config_transform(\"configs\").")
+    , ?Q("fix_str_fields(Str) ->"
+         "  [fun"
+         "      (mapping) -> Str;"
+         "      (type) -> typerefl:string();"
+         "      (_) -> undefined"
+         "   end].")
+    ].
+
+to_schema(Path, Spec) ->
+    erl_syntax:list([erl_syntax:tuple([erl_syntax:string(str(Key)),
+                                       fields(path_join(Path, str(Key)), SubSpec)])
+                     || {Key, SubSpec} <- maps:to_list(Spec)]).
+
+% fields(Path, #{<<"type">> := <<"object">>} = Spec) ->
+%     ref(Path, maps:get(<<"fields">>, Spec, #{}));
+fields(Path, Spec) ->
+    SubFields = type(Spec),
+    ?Q("fun(mapping) -> _@Path@;"
+       "   (type) -> _@SubFields;"
+       "   (_) -> undefined"
+       " end").
+
+ref(Path, Spec) ->
+    SubSchema = to_schema(Path, Spec),
+    ?Q("fun(mapping) -> _@Path@;"
+        "   (type) -> {ref, _@SubSchema};"
+        "   (_) -> undefined"
+        " end").
+
+type(#{<<"type">> := <<"string">>, <<"pattern">> := RE}) ->
+    ?Q("typerefl:regexp_binary(_@RE@)");
+type(#{<<"type">> := <<"string">>}) ->
+    ?Q("typerefl:string()");
+type(#{<<"type">> := <<"long_string">>} = Spec) ->
+    type(Spec#{<<"type">> => <<"string">>});
+type(#{<<"type">> := <<"password">>} = Spec) ->
+    type(Spec#{<<"type">> => <<"string">>});
+type(#{<<"type">> := <<"file">>} = Spec) ->
+    type(Spec#{<<"type">> => <<"string">>});
+type(#{<<"type">> := <<"size">>} = Spec) ->
+    type(Spec#{<<"type">> => <<"string">>, <<"pattern">> => "^[. 0-9]+(B|KB|MB|GB)$"});
+type(#{<<"type">> := <<"number">>}) ->
+    ?Q("typerefl:union([typerefl:integer(), typerefl:float()])");
+type(#{<<"type">> := <<"integer">>}) ->
+    ?Q("typerefl:integer()");
+type(#{<<"type">> := <<"float">>}) ->
+    ?Q("typerefl:float()");
+type(#{<<"type">> := <<"boolean">>}) ->
+    ?Q("typerefl:boolean()");
+type(#{<<"type">> := <<"enum">>, <<"enum">> := Enums}) ->
+    QEnums = [enum(E) || E <- Enums],
+    ?Q("typerefl:union([_@QEnums])");
+type(#{<<"type">> := <<"array">>, <<"items">> := Items}) ->
+    EItems = erl_syntax:list([type(I) || I <- Items]),
+    ?Q("typerefl:union(_@EItems)");
+type(#{<<"type">> := Object, <<"fields">> := Fields})
+        when Object == <<"object">>; Object == <<"table_object">> ->
+    EFields = erl_syntax:list([begin
+        TV = type(V),
+        RTVs = ?Q("[{strict, value, _@TV}, {fuzzy, typerefl:atom(), typerefl:term()}]"),
+        RichMapTV = ?Q("typerefl:map(_@RTVs)"),
+        ?Q("{strict, _@K@, _@RichMapTV}")
+    end || {K, V} <- maps:to_list(Fields)]),
+    ?Q("typerefl:map([{fuzzy, typerefl:atom(), typerefl:term()} | _@EFields])").
+
+enum(E) when is_binary(E) ->
+    AE = binary_to_atom(E, utf8),
+    ?Q("typerefl:atom(_@AE@)");
+enum(E) when is_atom(E) ->
+    ?Q("typerefl:atom(_@E@)");
+enum(E) when is_integer(E) ->
+    ?Q("typerefl:integer(_@E@)").
+
+
+path_join(A, B) ->
+    A ++ "." ++ B.
+
+str(B) when is_binary(B) -> binary_to_list(B);
+str(S) when is_list(S) -> S.

@@ -15,8 +15,13 @@ layout: [condition, level, enable_cache, cache_logs_in, cache_log_dir, bulk]
 fields: {
   condition: {
     type: object
-    default: {"clientid": "abc", "topic": "t/#"}
-    format: table ## table | jsonstr
+    default: {app: "emqx", clientid: "abc", topic: "t/#"}
+    fields: {
+      app: {
+        type: string,
+        pattern: "emqx"
+      }
+    }
     title: "The key and value pairs of the logger metadata"
     description: """When a log message contains a metadata key and also the value matches the value.
 If multiple conditions are provided, they will be combined as "or"."""
@@ -37,7 +42,7 @@ Note that this field is not necessary but I put it here only for demo."""
   },
   cache_logs_in: {
     type: enum
-    items: [memory, file]
+    enum: [memory, file]
     required: true
     default: memory
     visible: ${rules.if_cached_enabled}
@@ -45,14 +50,12 @@ Note that this field is not necessary but I put it here only for demo."""
     description: """If set to file, change the cache_log_dir for the directory of log files"""
   },
   cache_log_dir: {
-    ## long_string
     type: string
     min: 1
     max: 256
     required: false
     default: "/tmp"
-    ## builtin_pattern: file_path
-    pattern: "^(.+)\/([^\/]+)$"
+    pattern: "^.*$"
     visible: ${rules.if_cache_to_file}
     title: "The dir where the log messages should go"
     description: """The log messages will be cached to a file in this dir, and you can the unread messages by calling the `next_batch` API"""
@@ -60,9 +63,9 @@ Note that this field is not necessary but I put it here only for demo."""
   bulk: {
     type: size
     required: false
-    default: 1KB
-    min: 256B
-    max: 10KB
+    default: "1KB"
+    min: "256B"
+    max: "10KB"
     title: "The max size of one bulk"
     description: """One bulk is how much log messages will return
         when calling the `next_batch` API"""

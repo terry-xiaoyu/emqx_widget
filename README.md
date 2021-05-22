@@ -160,7 +160,9 @@ use cases."""
     ```
 
 - `object`: The value must be an object, the mandatory field `fields` is used for defining the schema
-    of each sub-field in the object. e.g.
+    of each sub-field in the object.
+
+    e.g.
     ```
     address: {
         type: 'object',
@@ -172,6 +174,9 @@ use cases."""
         }
     }
     ```
+
+    The UI should use a textarea and prompt the user to input an JSON object string for type
+    `object`. See also `object_table`.
 
 - `enum`: Value must exist in the enum defined by the mandatory field `enum`.
 
@@ -186,6 +191,7 @@ use cases."""
 - `long_string`: Same to `string`, but indicates the UI to use the `textarea` not `text` component.
 - `password`: Same to `string`, but indicates the UI to use the `password` textbox.
 - `file`: Same to `string`, but indicates the UI to use the component for uploading files.
+- `table_object`: Same to `string`, but indicates the UI to use the table component.
 
 ### Metadata that confine the types
 
