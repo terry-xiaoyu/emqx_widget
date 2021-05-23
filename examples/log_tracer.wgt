@@ -51,8 +51,8 @@ Note that this field is not necessary but I put it here only for demo."""
   },
   cache_log_dir: {
     type: string
-    min: 1
-    max: 256
+    min_len: 1
+    max_len: 256
     required: false
     default: "/tmp"
     pattern: "^.*$"
@@ -70,6 +70,10 @@ Note that this field is not necessary but I put it here only for demo."""
     description: """One bulk is how much log messages will return
         when calling the `next_batch` API"""
   },
+  chars_limit: {
+    type: integer
+    min: 1
+  }
 }
 
 ## Define rules to determine if a field visible.

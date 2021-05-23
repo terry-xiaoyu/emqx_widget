@@ -65,21 +65,14 @@ to_schema(Path, Spec) ->
                                        fields(path_join(Path, str(Key)), SubSpec)])
                      || {Key, SubSpec} <- maps:to_list(Spec)]).
 
-% fields(Path, #{<<"type">> := <<"object">>} = Spec) ->
-%     ref(Path, maps:get(<<"fields">>, Spec, #{}));
 fields(Path, Spec) ->
     SubFields = type(Spec),
+    Validators = validators(Spec),
     ?Q("fun(mapping) -> _@Path@;"
        "   (type) -> _@SubFields;"
+       "   (validator) -> _@Validators;"
        "   (_) -> undefined"
        " end").
-
-ref(Path, Spec) ->
-    SubSchema = to_schema(Path, Spec),
-    ?Q("fun(mapping) -> _@Path@;"
-        "   (type) -> {ref, _@SubSchema};"
-        "   (_) -> undefined"
-        " end").
 
 type(#{<<"type">> := <<"string">>, <<"pattern">> := RE}) ->
     ?Q("typerefl:regexp_binary(_@RE@)");
@@ -116,6 +109,35 @@ type(#{<<"type">> := Object, <<"fields">> := Fields})
         ?Q("{strict, _@K@, _@RichMapTV}")
     end || {K, V} <- maps:to_list(Fields)]),
     ?Q("typerefl:map([{fuzzy, typerefl:atom(), typerefl:term()} | _@EFields])").
+
+validators(#{<<"type">> := DataType} = Spec)
+        when DataType =:= <<"string">>;
+             DataType =:= <<"array">>;
+             DataType =:= <<"integer">>;
+             DataType =:= <<"float">>;
+             DataType =:= <<"number">> ->
+    Type = binary_to_atom(DataType, latin1),
+    case {maps:find(max_field(Type), Spec), maps:find(min_field(Type), Spec)} of
+        {error, error} -> ?Q("[]");
+        {error, {ok, Min}} ->
+            ?Q("[emqx_widget_validator:min(_@Type@,_@Min@)]");
+        {{ok, Max}, error} ->
+            ?Q("[emqx_widget_validator:max(_@Type@,_@Max@)]");
+        {{ok, Max}, {ok, Min}} ->
+            ?Q("[emqx_widget_validator:max(_@Type@,_@Max@),"
+               " emqx_widget_validator:min(_@Type@,_@Min@)]")
+    end;
+validators(_Spec) ->
+    ?Q("[]").
+
+max_field(Type) when Type =:= array; Type =:= string ->
+    <<"max_len">>;
+max_field(_) ->
+    <<"max">>.
+min_field(Type) when Type =:= array; Type =:= string ->
+    <<"min_len">>;
+min_field(_) ->
+    <<"min">>.
 
 enum(E) when is_binary(E) ->
     AE = binary_to_atom(E, utf8),
