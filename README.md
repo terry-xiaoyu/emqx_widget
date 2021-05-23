@@ -135,27 +135,29 @@ use cases."""
 
 - `float`: The value must be of type floating point number.
 
-- `array`: The value must be an array, the mandatory field `fields` is used for defining the schema
-    of each element in the array. e.g.
+- `array`: The value must be an array, the mandatory field `items` is used for defining the schema of each element in the array.
+
+    If all the element are of the same type:
+
+    ```
+    urls: {
+        type: 'array',
+        required: true,
+        items: {type: 'url'},
+    }
+    ```
+
+    Or if the elements have different types, give all possible types to `items` in an array.
+    e.g.
     ```
     roles: {
         type: 'array',
         required: true,
         len: 3,
-        fields: {
-            "0": { type: 'string', required: true },
-            "1": { type: 'string', required: true },
-            "2": { type: 'string', required: true },
-        }
-    }
-    ```
-
-    If all the element are of the same type, use the `defaultField` instead:
-    ```
-    urls: {
-        type: 'array',
-        required: true,
-        defaultField: { type: 'url' },
+        items: [
+            {type: string},
+            {type: integer}
+        ]
     }
     ```
 
@@ -198,9 +200,8 @@ use cases."""
 - `required`: Boolean value that indicates that the field must exist.
 - `pattern`: Indicates a regular expression that the value must match to pass validation.
     Only when the type is of type `string`, `long_string` or `password`.
-- `len`: To validate an exact length of a field specify the len property. For string and array types
- comparison is performed on the length property, for the number type this property indicates an
- exact match for the number, ie, it may only be strictly equal to len.
+- `max_len` and `min_len`: To validate an max/min length of a string or an array.
+- `max` and `min`: Indicates the range of a number. Value >= max && Value <= min.
 
 ### Metadata for field visibility
 

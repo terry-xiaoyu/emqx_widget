@@ -1,0 +1,305 @@
+title: "test01"
+description: "A widget spec file that contains all available data types for validation testing"
+
+layout: []
+
+fields: {
+  k_map_optional: {
+    title: "test the optional map type, the sub fields can be any map so we give it '{}' here"
+    description: """
+        1. the value of k_map_optional can be any valid json object
+        2. if the value is not provided, the value should be assigned a default value
+    """.
+    fields: {}
+    type: object
+    default: {a: 1, b: 2}
+  }
+
+  k_map_optional_2: {
+    title: "test the optional map type, the 'fields' can be omitted if it is any map"
+    description: """
+        1. same tests as k_map_optional
+    """.
+    type: object
+    default: {app: "emqx", clientid: "abc", topic: "t/#"}
+  }
+
+  k_map_optional_3: {
+    title: "test the optional map type, the default value can be ommited"
+    description: """
+        1. the value of k_map_optional can be any valid json object
+        2. if the default value is not provided, the value should be assigned to empty map
+    """.
+    type: object
+  }
+
+  k_map_optional_4: {
+    title: "test the optional map type, the sub fields must match to the spec"
+    description: """
+        1. if the value is not provided, the value should be '{a: 1, b: 2}'
+        2. if the value is provided, the value should have a key 'c' with an integer value
+    """.
+    fields: {
+        c: {type: integer}
+    }
+    type: object
+    default: {a: 1, b: 2}
+  }
+
+  k_map_required: {
+    title: "test the mandatory map type"
+    description: """
+        1. [*] if the map is required, it should have no 'default' spec
+        2. it is an error if the value is not provided.
+        3. the value should be a map and contains a key 'k_sub_map_01' with a string value
+    """.
+    required: true
+    type: object
+    fields: {
+        k_sub_map_01: {
+            type: string
+        }
+    }
+  }
+
+  k_map_required_2: {
+    title: "test the mandatory map type"
+    description: """
+        1. it is an error if the value is not provided.
+        2. the value can be any json object
+    """.
+    required: true
+    type: object
+    fields: {}
+  }
+
+  k_map_required_3: {
+    title: "test the mandatory map type"
+    description: """
+        1. the value must have a key 'k_sub_map_01' which value is another object, with
+           mandatory keys 'k_sub_sub_map_01' and 'k_sub_sub_map_02'
+    """.
+    required: true
+    type: object
+    fields: {
+        k_sub_map_01: {
+            type: object
+            required: true
+            fields: {
+                k_sub_sub_map_01: {
+                    type: string
+                },
+                k_sub_sub_map_02: {
+                    type: integer
+                }
+            }
+        }
+    }
+  }
+
+  k_enum_optional: {
+    title: "test optional enum type."
+    description: """
+        1. if not provided, the value defaults to "c"
+        2. if provided, the value should be one of the enums
+    """
+    type: enum
+    enum: [a, b, 1, "2"]
+    default: c
+  }
+
+  k_enum_optional_2: {
+    title: "test optional enum type. omitting the default is equivalent to the first enum"
+    description: """
+        1. if not provided, the value defaults to "a"
+    """
+    type: enum
+    enum: [a, b, 1, "2"]
+  }
+
+  k_enum_required: {
+    title: "test required enum type."
+    description: """
+        1. it is an error if not provided
+        2. if provided, the value should be one of the enums
+    """
+    required: true
+    type: enum
+    enum: [a, b, 1, "2"]
+  }
+
+  k_array_optional: {
+    title: "test optional array type."
+    description: """
+        1. if not provided, the value should be [a, b]
+        2. if provided, the element should be of type string
+    """
+    type: array
+    default: [a, b]
+    items: {type: string}
+  }
+
+  k_array_optional_2: {
+    title: "test optional array type. items set to {} for any type"
+    description: """
+        1. if not provided, the value should be [a, b]
+        2. if provided, the element any be any type
+    """
+    type: array
+    default: [a, b]
+    items: {}
+  }
+
+  k_array_optional_2: {
+    title: "test optional array type. items set to {} for any type"
+    description: """
+        1. if not provided, the value should be []
+        2. if provided, the element any be any type
+    """
+    type: array
+    items: {}
+  }
+
+  k_array_required: {
+    title: "test required array type. items set to {} for any type"
+    description: """
+        1. it's an error if not provided
+        2. if provided, the element any be any type
+    """
+    required: true
+    type: array
+    items: {}
+  }
+
+  k_array_required_2: {
+    title: "test required array type."
+    description: """
+        1. if provided, the element should be of type integer
+    """
+    required: true
+    type: array
+    items: {type: integer}
+  }
+
+  k_array_required_3: {
+    title: "test required array type."
+    description: """
+        1. if provided, the element should be of type integer or string
+    """
+    required: true
+    type: array
+    items: [{type: integer}, {type: string}]
+  }
+
+  k_array_required_4: {
+    title: "test required array type."
+    description: """
+        1. if provided, the element should be of type object
+    """
+    required: true
+    type: array
+    items: {type: object, fields: {}}
+  }
+
+  k_array_required_5: {
+    title: "test required array type."
+    description: """
+        1. if provided, the element should be arrays of strings
+    """
+    required: true
+    type: array
+    items: {
+        type: array
+        items: {type: string}
+    }
+  }
+
+  k_number_optional: {
+    title: "test optional number type."
+    description: """
+        1. if provided, it should be a number
+        2. if not provided, it should be "not_given"
+    """
+    required: false
+    type: number
+    default: not_given
+  }
+
+  k_number_optional_2: {
+    title: "test optional number type."
+    description: """
+        1. if not provided, it should be atom undefined
+    """
+    type: number
+  }
+
+  k_number_required: {
+    title: "test required number type."
+    description: """
+        1. it is an error if not provided
+    """
+    required: true
+    type: number
+  }
+
+  k_number_required_2: {
+    title: "test required number type."
+    description: """
+        1. range can be defined by max and min fields, 1 =< Val =< 3
+    """
+    type: number
+    required: true
+    max: 1
+    min: 3
+  }
+
+  k_sting_optional: {
+    title: "test optional string type."
+    description: """
+        1. the value should be a string if provided
+        2. the value should be "haha" if not_provided
+    """
+    type: string
+    default: "haha"
+  }
+
+  k_sting_optional_2: {
+    title: "test optional string type."
+    description: """
+        1. the value should be the atom 'undefined' if not_provided
+    """
+    type: string
+  }
+
+  k_sting_required: {
+    title: "test required string type."
+    description: """
+        1. it's an error if not provided
+        2. the length of characters should be in range [5, 10]
+    """
+    required: true
+    min_len: 5
+    max_len: 10
+    type: string
+  }
+
+  k_boolean_optional: {
+    title: "test optional boolean type."
+    description: """
+        1. the value defaults to false
+        2. can only accept true or false values
+    """
+    required: false
+    type: boolean
+  }
+
+  k_boolean_required: {
+    title: "test optional boolean type."
+    description: """
+        1. the value must be provided
+    """
+    required: true
+    type: boolean
+  }
+
+}
