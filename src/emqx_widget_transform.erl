@@ -75,9 +75,11 @@ to_schema(Path, Spec) ->
 
 fields(Path, Spec) ->
     SubFields = type(Spec),
+    Default = default(Spec),
     Validators = validators(Spec),
     ?Q("fun(mapping) -> _@Path@;"
        "   (type) -> _@SubFields;"
+       "   (default) -> _@Default;"
        "   (validator) -> _@Validators;"
        "   (_) -> undefined"
        " end").
@@ -140,6 +142,11 @@ validators(#{<<"type">> := <<"enum">>, <<"enum">> := Enum0}) ->
     ?Q("[emqx_widget_validator:enum(_@Enum@)]");
 validators(_Spec) ->
     ?Q("[]").
+
+default(#{<<"default">> := Default}) ->
+    ?Q("_@Default@");
+default(_Spec) ->
+    ?Q("undefined").
 
 enum_item(E) when is_binary(E) ->
     binary_to_atom(E, latin1);
