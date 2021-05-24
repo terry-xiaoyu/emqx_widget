@@ -18,20 +18,32 @@
 
 -export([ min/2
         , max/2
+        , equals/2
+        , enum/1
         ]).
 
 max(Type, Max) ->
     limit(Type, '=<', Max).
+
 min(Type, Min) ->
     limit(Type, '>=', Min).
+
+equals(Type, Expected) ->
+    limit(Type, '==', Expected).
+
+enum(Items) ->
+    fun(Value) ->
+        return(lists:member(Value, Items),
+            err_limit({enum, {is_member_of, Items}, {got, Value}}))
+    end.
 
 limit(Type, Op, Expected) ->
     L = len(Type),
     fun(Value) ->
         Got = L(Value),
-        return(erlang:Op(Got, Expected), err_limit({Type, {Op, Expected}, {got, Got}}))
+        return(erlang:Op(Got, Expected),
+            err_limit({Type, {Op, Expected}, {got, Got}}))
     end.
-
 
 len(array) -> fun erlang:length/1;
 len(string) -> fun string:length/1;

@@ -1,6 +1,6 @@
--type widget_type() :: binary().
+-type widget_type() :: module().
 -type instance_id() :: binary().
--type widget_config() :: map().
+-type widget_config() :: [{atom(), term()}].
 -type widget_spec() :: map().
 -type widget_state() :: term().
 -type widget_data() :: #{

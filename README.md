@@ -23,7 +23,7 @@ So they may find each other via this Id.
     $ ./demo.sh
     Eshell V11.1.8  (abort with ^G)
     1> == the demo log tracer <<"log_tracer_clientid_shawn">> started.
-    config: #{<<"configs">> =>
+    config: #{<<"config">> =>
                 #{<<"bulk">> => <<"10KB">>,<<"cache_log_dir">> => <<"/tmp">>,
                     <<"condition">> => #{<<"clientid">> => <<"abc">>},
                     <<"level">> => <<"debug">>},

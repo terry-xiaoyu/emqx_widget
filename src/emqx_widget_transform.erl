@@ -27,10 +27,10 @@ form(Form) ->
             %io:format("----widget attr: ~p, form: ~p~n", [File, Form]),
             {ok, Widget} = hocon:load(erl_syntax:concrete(File), #{format => map}),
             SpecFun = erl_syntax:revert(?Q("emqx_widget_spec() -> _@Widget@.")),
-            SchemaBody = to_schema("configs", maps:get(<<"fields">>, Widget)),
+            SchemaBody = to_schema("config", maps:get(<<"fields">>, Widget)),
             SchemaFunc =
                 erl_syntax:revert(?Q(
-                    "fields(\"configs\") -> _@SchemaBody;"
+                    "fields(\"config\") -> _@SchemaBody;"
                     "fields(\"id\") -> fix_str_fields(\"id\");"
                     "fields(\"widget_type\") -> fix_str_fields(\"widget_type\").")),
             %merl:print(SchemaFunc),
@@ -49,9 +49,9 @@ fix_attrs() ->
     , ?Q("-behaviour(hocon_schema).")
     ].
 fix_funcs() ->
-    [ ?Q("structs() -> [\"id\", \"widget_type\", \"configs\"].")
-    , ?Q("translations() -> [\"configs\"].")
-    , ?Q("translation(\"configs\") -> log_tracer:config_transform(\"configs\").")
+    [ ?Q("structs() -> [\"id\", \"widget_type\", \"config\"].")
+    , ?Q("translations() -> [\"config\"].")
+    , ?Q("translation(\"config\") -> log_tracer:config_transform(\"config\").")
     , ?Q("fix_str_fields(Str) ->"
          "  [fun"
          "      (mapping) -> Str;"
@@ -94,9 +94,9 @@ type(#{<<"type">> := <<"float">>}) ->
     ?Q("typerefl:float()");
 type(#{<<"type">> := <<"boolean">>}) ->
     ?Q("typerefl:boolean()");
-type(#{<<"type">> := <<"enum">>, <<"enum">> := Enums}) ->
-    QEnums = [enum(E) || E <- Enums],
-    ?Q("typerefl:union([_@QEnums])");
+type(#{<<"type">> := <<"enum">>}) ->
+    %% an enum can only consist of atoms (converted from string) or numbers
+    ?Q("typerefl:union([typerefl:atom(), typerefl:number()])");
 type(#{<<"type">> := <<"array">>, <<"items">> := Items}) ->
     EItems = erl_syntax:list([type(I) || I <- Items]),
     ?Q("typerefl:union(_@EItems)");
@@ -127,6 +127,8 @@ validators(#{<<"type">> := DataType} = Spec)
             ?Q("[emqx_widget_validator:max(_@Type@,_@Max@),"
                " emqx_widget_validator:min(_@Type@,_@Min@)]")
     end;
+validators(#{<<"type">> := <<"enum">>, <<"enum">> := Enums}) ->
+    ?Q("[emqx_widget_validator:enum(_@Enums@)]");
 validators(_Spec) ->
     ?Q("[]").
 
@@ -138,15 +140,6 @@ min_field(Type) when Type =:= array; Type =:= string ->
     <<"min_len">>;
 min_field(_) ->
     <<"min">>.
-
-enum(E) when is_binary(E) ->
-    AE = binary_to_atom(E, utf8),
-    ?Q("typerefl:atom(_@AE@)");
-enum(E) when is_atom(E) ->
-    ?Q("typerefl:atom(_@E@)");
-enum(E) when is_integer(E) ->
-    ?Q("typerefl:integer(_@E@)").
-
 
 path_join(A, B) ->
     A ++ "." ++ B.
