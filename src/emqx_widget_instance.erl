@@ -92,7 +92,6 @@ load_widget_instance(Config) when is_list(Config) ->
 
 %% Config for a widget
 load_widget_instance(Config) ->
-    logger:debug("loading widget instance from config: ~p", [Config]),
     WidgetType = hocon_schema:deep_get("widget_type", Config, value),
     case get_cbk_mod_of_widget(WidgetType) of
         {ok, CbkMod} ->
@@ -108,12 +107,13 @@ do_load_widget_instance(WidgetType, Config) ->
                 [WidgetType, Reason, Config]);
         Config0 ->
             InstId = proplists:get_value(id, Config0),
-            InstConf = proplists:get_value(config, Config0),
+            InstConf = maps:from_list(proplists:get_value(config, Config0)),
+            logger:debug("loading widget instance from config: ~p", [InstConf]),
             case ?SAFE_CALL(do_create(InstId, WidgetType, InstConf)) of
                 ok -> ok;
                 {error, Reason} ->
                     logger:error("create widget instance for type ~p failed: ~p, config: ~p",
-                        [WidgetType, Reason, Config0])
+                        [WidgetType, Reason, InstConf])
             end
     end.
 
@@ -167,7 +167,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%------------------------------------------------------------------------------
 
-do_create(InstId, WidgetType, Config) ->
+do_create(InstId, WidgetType, Config) when is_map(Config) ->
     case lookup(InstId) of
         {ok, _} -> {error, already_created};
         _ ->
@@ -184,7 +184,7 @@ do_create(InstId, WidgetType, Config) ->
             end
     end.
 
-do_create_dry_run(InstId, WidgetType, Config) ->
+do_create_dry_run(InstId, WidgetType, Config) when is_map(Config) ->
     case emqx_widget:call_start(InstId, WidgetType, Config) of
         {ok, WidgetState0} ->
             case emqx_widget:call_health_check(InstId, WidgetType, WidgetState0) of
@@ -211,7 +211,7 @@ do_remove(Mod, InstId, WidgetState) ->
     ets:delete(emqx_widget_instance, InstId),
     ok.
 
-do_update(InstId, NewConfig) ->
+do_update(InstId, NewConfig) when is_map(NewConfig) ->
     case lookup(InstId) of
         {ok, #{mod := Mod, state := WidgetState, config := OldConfig}} ->
             Config = maps:merge(OldConfig, NewConfig),

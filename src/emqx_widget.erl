@@ -27,6 +27,7 @@
 
 -export([ discover_widget_mods/0
         , is_widget_mod/1
+        , call_instance/2
         ]).
 
 -export([ query_success/1
