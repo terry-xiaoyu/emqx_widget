@@ -37,6 +37,8 @@
 
 %% APIs for instances
 
+-export([parse_config/1]).
+
 %% Sync widget instances and files
 %% provisional solution: rpc:multical to all the nodes for creating/updating/removing
 %% todo: replicate operations
@@ -194,7 +196,6 @@ get_instance_by_type(WidgetType) ->
 load_instances(Dir) ->
     emqx_widget_instance:load(Dir).
 
-
 -spec call_start(instance_id(), module(), widget_config()) ->
     {ok, widget_state()} | {error, Reason :: term()}.
 call_start(InstId, Mod, Config) ->
@@ -209,7 +210,42 @@ call_health_check(InstId, Mod, WidgetState) ->
 call_stop(InstId, Mod, WidgetState) ->
     ?SAFE_CALL(Mod:on_stop(InstId, WidgetState)).
 
+-spec parse_config(binary()) ->
+    {ok, instance_id(), widget_type(), widget_config()} | {error, term()}.
+parse_config(RawConfig) ->
+    case hocon:binary(RawConfig, #{format => richmap}) of
+        {ok, MapConfig} ->
+            WidgetTypeStr = hocon_schema:deep_get("widget_type", MapConfig, value),
+            do_parse_config(WidgetTypeStr, MapConfig);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_parse_config(WidgetTypeStr, MapConfig) ->
+    case widget_type_from_str(WidgetTypeStr) of
+        {ok, WidgetType} ->
+            case ?SAFE_CALL(hocon_schema:generate(WidgetType, MapConfig)) of
+                {error, Reason} -> {error, Reason};
+                Config ->
+                    InstId = proplists:get_value(id, Config),
+                    InstConf = maps:from_list(proplists:get_value(config, Config)),
+                    {ok, InstId, WidgetType, InstConf}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 %% =================================================================================
+
+widget_type_from_str(WidgetType) ->
+    try Mod = list_to_existing_atom(str(WidgetType)),
+        case emqx_widget:is_widget_mod(Mod) of
+            true -> {ok, Mod};
+            false -> {error, {invalid_widget, Mod}}
+        end
+    catch error:badarg ->
+        {error, {not_found, WidgetType}}
+    end.
 
 call_instance(InstId, Query) ->
     emqx_widget_instance:hash_call(InstId, Query).
@@ -217,3 +253,5 @@ call_instance(InstId, Query) ->
 safe_apply(Func, Args) ->
     ?SAFE_CALL(erlang:apply(Func, Args)).
 
+str(S) when is_binary(S) -> binary_to_list(S);
+str(S) when is_list(S) -> S.

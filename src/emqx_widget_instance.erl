@@ -84,42 +84,26 @@ load(Dir) ->
     lists:foreach(fun load_file/1, filelib:wildcard(filename:join([Dir, "*.conf"]))).
 
 load_file(File) ->
-    case hocon:load(File, #{format => richmap}) of
-        {ok, Config} ->
-            load_widget_instance(Config);
+    case ?SAFE_CALL(hocon_token:read(File)) of
         {error, Reason} ->
-            logger:error("load widget from ~p failed: ~p", [File, Reason])
-     end.
-
-%% Config for list of widget instances
-load_widget_instance(Config) when is_list(Config) ->
-    lists:foreach(fun load_widget_instance/1, Config);
-
-%% Config for a widget
-load_widget_instance(Config) ->
-    WidgetType = hocon_schema:deep_get("widget_type", Config, value),
-    case get_cbk_mod_of_widget(WidgetType) of
-        {ok, CbkMod} ->
-            do_load_widget_instance(CbkMod, Config);
-        Error ->
-            logger:error("load widget instance failed: ~p, config: ~p", [Error, Config])
+            logger:error("load widget from ~p failed: ~p", [File, Reason]);
+        RawConfig ->
+            case emqx_widget:parse_config(RawConfig) of
+                {error, Reason} ->
+                    logger:error("load widget instance from ~p failed: ~p", [File, Reason]);
+                {ok, InstId, WidgetType, InstConf} ->
+                    create_instance_local(InstId, WidgetType, InstConf)
+            end
     end.
 
-do_load_widget_instance(WidgetType, Config) ->
-    case ?SAFE_CALL(hocon_schema:generate(WidgetType, Config)) of
+create_instance_local(InstId, WidgetType, InstConf) ->
+    case do_create(InstId, WidgetType, InstConf) of
+        ok ->
+            logger:debug("created ~p widget instance: ~p from config: ~p",
+                [WidgetType, InstId, InstConf]);
         {error, Reason} ->
-            logger:error("load widget instance for type ~p failed: ~p, config: ~p",
-                [WidgetType, Reason, Config]);
-        Config0 ->
-            InstId = proplists:get_value(id, Config0),
-            InstConf = maps:from_list(proplists:get_value(config, Config0)),
-            logger:debug("loading widget instance from config: ~p", [InstConf]),
-            case ?SAFE_CALL(do_create(InstId, WidgetType, InstConf)) of
-                ok -> ok;
-                {error, Reason} ->
-                    logger:error("create widget instance for type ~p failed: ~p, config: ~p",
-                        [WidgetType, Reason, InstConf])
-            end
+            logger:error("create ~p widget instance: ~p failed: ~p, config: ~p",
+                [WidgetType, InstId, Reason, InstConf])
     end.
 
 %%------------------------------------------------------------------------------
@@ -283,18 +267,5 @@ do_health_check(InstId) ->
 proc_name(Mod, Id) ->
     list_to_atom(lists:concat([Mod, "_", Id])).
 
-get_cbk_mod_of_widget(WidgetType) ->
-    try Mod = list_to_existing_atom(str(WidgetType)),
-        case emqx_widget:is_widget_mod(Mod) of
-            true -> {ok, Mod};
-            false -> {error, {invalid_widget, Mod}}
-        end
-    catch error:badarg ->
-        {error, {not_found, WidgetType}}
-    end.
-
 pick(InstId) ->
     gproc_pool:pick_worker(emqx_widget_instance, InstId).
-
-str(S) when is_binary(S) -> binary_to_list(S);
-str(S) when is_list(S) -> S.
