@@ -23,39 +23,10 @@
 
 -export([start_link/2]).
 
--compile({no_auto_import,
-          [ get/1
-          ]}).
-
 %% load widget instances from *.conf files
--export([load/1]).
-
-%% Sync widget instances and files
-%% provisional solution: rpc:multical to all the nodes for creating/updating/removing
-%% todo: replicate operations
--export([ create/3 %% store the config and start the instance
-        , create_dry_run/3 %% run start/2, health_check/2 and stop/1 sequentially
-        , update/2 %% update the config, stop the old instance and start the new one
-        , remove/1 %% remove the config and stop the instance
+-export([ load/1
+        , lookup/1
         ]).
-
-%% invoke the callbacks of a instance
--export([ query/2  %% query the instance
-        , query/3  %% query the instance with after_query()
-        , restart/1  %% restart the instance
-        , health_check/1 %% verify if the widget is working normally
-        , stop/1   %% stop the instance
-        ]).
-
--export([ get/1 %% return the data of the instance
-        , get_by_type/1 %% return all the instances of the same widget type
-        % , dependents/1
-        % , inc_counter/2 %% increment the counter of the instance
-        % , inc_counter/3 %% increment the counter by a given integer
-        ]).
-
-%% for debug purposes
--export([dump/0]).
 
 -export([ hash_call/2
         , hash_call/3
@@ -70,8 +41,9 @@
         , code_change/3
         ]).
 
-dump() ->
-    io:format("Instances: ~p~n", [ets:tab2list(emqx_widget_instance)]).
+-record(state, {worker_pool, worker_id}).
+
+-type state() :: #state{}.
 
 %%------------------------------------------------------------------------------
 %% Start the registry
@@ -79,7 +51,7 @@ dump() ->
 
 start_link(Pool, Id) ->
     gen_server:start_link({local, proc_name(?MODULE, Id)},
-                          ?MODULE, [Pool, Id], []).
+                          ?MODULE, {Pool, Id}, []).
 
 %% call the worker by the hash of widget-instance-id, to make sure we always handle
 %% operations on the same instance in the same worker.
@@ -88,6 +60,13 @@ hash_call(InstId, Request) ->
 
 hash_call(InstId, Request, Timeout) ->
     gen_server:call(pick(InstId), Request, Timeout).
+
+-spec lookup(instance_id()) -> {ok, widget_data()} | {error, Reason :: term()}.
+lookup(InstId) ->
+    case ets:lookup(emqx_widget_instance, InstId) of
+        [] -> {error, not_found};
+        [{_, Data}] -> {ok, Data}
+    end.
 
 -spec load(Dir :: string()) -> ok.
 load(Dir) ->
@@ -132,70 +111,16 @@ do_load_widget_instance(WidgetType, Config) ->
             end
     end.
 
--spec create(instance_id(), widget_type(), widget_config()) -> ok | {error, Reason :: term()}.
-create(InstId, WidgetType, Config) ->
-    ?CLUSTER_CALL(hash_call, [InstId, {create, InstId, WidgetType, Config}]).
-
--spec create_dry_run(instance_id(), widget_type(), widget_config()) -> ok | {error, Reason :: term()}.
-create_dry_run(InstId, WidgetType, Config) ->
-    ?CLUSTER_CALL(hash_call, [InstId, {create_dry_run, InstId, WidgetType, Config}]).
-
--spec update(instance_id(), widget_config()) -> ok | {error, Reason :: term()}.
-update(InstId, Config) ->
-    ?CLUSTER_CALL(hash_call, [InstId, {update, InstId, Config}]).
-
--spec remove(instance_id()) -> ok | {error, Reason :: term()}.
-remove(InstId) ->
-    ?CLUSTER_CALL(hash_call, [InstId, {remove, InstId}]).
-
--spec query(instance_id(), Request :: term()) -> Result :: term().
-query(InstId, Request) ->
-    query(InstId, Request, undefined).
-
-%% same to above, also defines what to do when the Module:on_query success or failed
-%% it is the duty of the Moudle to apply the `after_query()` functions.
--spec query(instance_id(), Request :: term(), after_query()) -> Result :: term().
-query(InstId, Request, AfterQuery) ->
-    case get(InstId) of
-        {ok, #{mod := Mod, state := WidgetState}} ->
-            %% the widget state is readonly to Moudle:on_query/4
-            %% and the `after_query()` functions should be thread safe
-            Mod:on_query(InstId, Request, AfterQuery, WidgetState);
-        {error, Reason} ->
-            error({get_instance, {InstId, Reason}})
-    end.
-
-%% call the Module:on_start/2
--spec restart(instance_id()) -> ok | {error, Reason :: term()}.
-restart(InstId) ->
-    hash_call(InstId, {restart, InstId}).
-
--spec stop(instance_id()) -> ok | {error, Reason :: term()}.
-stop(InstId) ->
-    hash_call(InstId, {stop, InstId}).
-
--spec health_check(instance_id()) -> ok | {error, Reason :: term()}.
-health_check(InstId) ->
-    hash_call(InstId, {health_check, InstId}).
-
--spec get(instance_id()) -> {ok, widget_data()} | {error, Reason :: term()}.
-get(InstId) ->
-    case ets:lookup(emqx_widget_instance, InstId) of
-        [] -> {error, not_found};
-        [{_, Data}] -> {ok, Data}
-    end.
-
--spec get_by_type(module()) -> [widget_data()].
-get_by_type(Mod) ->
-    [Data || #{mod := Mod0} = Data <- ets:tab2list(emqx_widget_instance), Mod0 =:= Mod].
-
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
 
-init([Pool, Id]) ->
+-spec init({atom(), integer()}) ->
+    {ok, State :: state()} | {ok, State :: state(), timeout() | hibernate | {continue, term()}} |
+    {stop, Reason :: term()} | ignore.
+init({Pool, Id}) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #{pool => Pool, id => Id}}.
+    {ok, #state{worker_pool = Pool, worker_id = Id}}.
 
 handle_call({create, InstId, WidgetType, Config}, _From, State) ->
     {reply, do_create(InstId, WidgetType, Config), State};
@@ -228,7 +153,7 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #{pool := Pool, id := Id}) ->
+terminate(_Reason, #state{worker_pool = Pool, worker_id = Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -237,7 +162,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 do_create(InstId, WidgetType, Config) ->
-    case get(InstId) of
+    case lookup(InstId) of
         {ok, _} -> {error, already_created};
         _ ->
             case mod_start(InstId, WidgetType, Config) of
@@ -266,7 +191,7 @@ do_create_dry_run(InstId, WidgetType, Config) ->
     end.
 
 do_remove(InstId) ->
-    case get(InstId) of
+    case lookup(InstId) of
         {ok, #{mod := Mod, state := WidgetState}} ->
             do_remove(Mod, InstId, WidgetState);
         Error ->
@@ -279,7 +204,7 @@ do_remove(Mod, InstId, WidgetState) ->
     ok.
 
 do_update(InstId, NewConfig) ->
-    case get(InstId) of
+    case lookup(InstId) of
         {ok, #{mod := Mod, state := WidgetState, config := OldConfig}} ->
             Config = maps:merge(OldConfig, NewConfig),
             case do_create_dry_run(InstId, Mod, Config) of
@@ -294,7 +219,7 @@ do_update(InstId, NewConfig) ->
     end.
 
 do_restart(InstId) ->
-    case get(InstId) of
+    case lookup(InstId) of
         {ok, #{mod := Mod, state := WidgetState, config := Config} = Data} ->
             _ = mod_stop(InstId, Mod, WidgetState),
             case mod_start(InstId, Mod, Config) of
@@ -310,7 +235,7 @@ do_restart(InstId) ->
     end.
 
 do_stop(InstId) ->
-    case get(InstId) of
+    case lookup(InstId) of
         {ok, #{mod := Mod, state := WidgetState} = Data} ->
             _ = mod_stop(InstId, Mod, WidgetState),
             ets:insert(emqx_widget_instance, {InstId, Data#{status => stopped}}),
@@ -320,7 +245,7 @@ do_stop(InstId) ->
     end.
 
 do_health_check(InstId) ->
-    case get(InstId) of
+    case lookup(InstId) of
         {ok, #{mod := Mod, state := WidgetState0} = Data} ->
             case mod_health_check(InstId, Mod, WidgetState0) of
                 {ok, WidgetState1} ->
