@@ -20,7 +20,7 @@ debug_print(_AST) ->
 trans(Forms) ->
     forms(Forms) ++ [erl_syntax:revert(erl_syntax:eof_marker())].
 
-forms([F0|Fs0]) ->
+forms([F0 | Fs0]) ->
     case form(F0) of
         {CurrForm, AppendedForms} ->
             CurrForm ++ forms(Fs0) ++ AppendedForms;

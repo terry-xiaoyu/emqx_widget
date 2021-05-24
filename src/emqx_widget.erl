@@ -44,12 +44,19 @@
         , remove/1 %% remove the config and stop the instance
         ]).
 
-%% invoke the callbacks of a instance
--export([ query/2  %% query the instance
-        , query/3  %% query the instance with after_query()
-        , restart/1  %% restart the instance
+%% Calls to the callback module with current widget state
+%% They also save the state after the call finished (except query/2,3).
+-export([ restart/1  %% restart the instance.
         , health_check/1 %% verify if the widget is working normally
         , stop/1   %% stop the instance
+        , query/2  %% query the instance
+        , query/3  %% query the instance with after_query()
+        ]).
+
+%% Direct calls to the callback module
+-export([ call_start/3  %% start the instance
+        , call_health_check/3 %% verify if the widget is working normally
+        , call_stop/3   %% stop the instance
         ]).
 
 -export([ get_instance/1 %% return the data of the instance
@@ -117,7 +124,8 @@ query_failed({_, {OnFailed, Args}}) ->
 create(InstId, WidgetType, Config) ->
     ?CLUSTER_CALL(call_instance, [InstId, {create, InstId, WidgetType, Config}]).
 
--spec create_dry_run(instance_id(), widget_type(), widget_config()) -> ok | {error, Reason :: term()}.
+-spec create_dry_run(instance_id(), widget_type(), widget_config()) ->
+    ok | {error, Reason :: term()}.
 create_dry_run(InstId, WidgetType, Config) ->
     ?CLUSTER_CALL(call_instance, [InstId, {create_dry_run, InstId, WidgetType, Config}]).
 
@@ -146,7 +154,6 @@ query(InstId, Request, AfterQuery) ->
             error({get_instance, {InstId, Reason}})
     end.
 
-%% call the Module:on_start/2
 -spec restart(instance_id()) -> ok | {error, Reason :: term()}.
 restart(InstId) ->
     call_instance(InstId, {restart, InstId}).
@@ -164,12 +171,27 @@ get_instance(InstId) ->
     emqx_widget_instance:lookup(InstId).
 
 -spec get_instance_by_type(module()) -> [widget_data()].
-get_instance_by_type(Mod) ->
-    [Data || #{mod := Mod0} = Data <- ets:tab2list(emqx_widget_instance), Mod0 =:= Mod].
+get_instance_by_type(WidgetType) ->
+    emqx_widget_instance:lookup_by_type(WidgetType).
 
 -spec load_instances(Dir :: string()) -> ok.
 load_instances(Dir) ->
     emqx_widget_instance:load(Dir).
+
+
+-spec call_start(instance_id(), module(), widget_config()) ->
+    {ok, widget_state()} | {error, Reason :: term()}.
+call_start(InstId, Mod, Config) ->
+    ?SAFE_CALL(Mod:on_start(InstId, Config)).
+
+-spec call_health_check(instance_id(), module(), widget_state()) ->
+    {ok, widget_state()} | {error, Reason:: term(), widget_state()}.
+call_health_check(InstId, Mod, WidgetState) ->
+    ?SAFE_CALL(Mod:on_health_check(InstId, WidgetState)).
+
+-spec call_stop(instance_id(), module(), widget_state()) -> term().
+call_stop(InstId, Mod, WidgetState) ->
+    ?SAFE_CALL(Mod:on_stop(InstId, WidgetState)).
 
 %% =================================================================================
 

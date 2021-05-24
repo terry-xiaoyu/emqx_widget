@@ -26,6 +26,7 @@
 %% load widget instances from *.conf files
 -export([ load/1
         , lookup/1
+        , lookup_by_type/1
         ]).
 
 -export([ hash_call/2
@@ -67,6 +68,11 @@ lookup(InstId) ->
         [] -> {error, not_found};
         [{_, Data}] -> {ok, Data}
     end.
+
+-spec lookup_by_type(module()) -> [widget_data()].
+lookup_by_type(WidgetType) ->
+    [Data || #{mod := Mod} = Data <- ets:tab2list(emqx_widget_instance)
+             , Mod =:= WidgetType].
 
 -spec load(Dir :: string()) -> ok.
 load(Dir) ->
@@ -165,10 +171,12 @@ do_create(InstId, WidgetType, Config) ->
     case lookup(InstId) of
         {ok, _} -> {error, already_created};
         _ ->
-            case mod_start(InstId, WidgetType, Config) of
+            case emqx_widget:call_start(InstId, WidgetType, Config) of
                 {ok, WidgetState} ->
-                    ets:insert(emqx_widget_instance, {InstId, #{mod => WidgetType, config => Config,
-                        state => WidgetState, status => started}}),
+                    ets:insert(emqx_widget_instance, {InstId,
+                        #{mod => WidgetType, config => Config,
+                          state => WidgetState, status => stopped}}),
+                    _ = do_health_check(InstId),
                     ok;
                 {error, Reason} ->
                     logger:error("start ~s widget ~s failed: ~p", [WidgetType, InstId, Reason]),
@@ -177,11 +185,11 @@ do_create(InstId, WidgetType, Config) ->
     end.
 
 do_create_dry_run(InstId, WidgetType, Config) ->
-    case mod_start(InstId, WidgetType, Config) of
+    case emqx_widget:call_start(InstId, WidgetType, Config) of
         {ok, WidgetState0} ->
-            case mod_health_check(InstId, WidgetType, WidgetState0) of
+            case emqx_widget:call_health_check(InstId, WidgetType, WidgetState0) of
                 {ok, WidgetState1} ->
-                    _ = mod_stop(InstId, WidgetType, WidgetState1),
+                    _ = emqx_widget:call_stop(InstId, WidgetType, WidgetState1),
                     ok;
                 {error, Reason} ->
                     {error, Reason}
@@ -199,7 +207,7 @@ do_remove(InstId) ->
     end.
 
 do_remove(Mod, InstId, WidgetState) ->
-    _ = mod_stop(InstId, Mod, WidgetState),
+    _ = emqx_widget:call_stop(InstId, Mod, WidgetState),
     ets:delete(emqx_widget_instance, InstId),
     ok.
 
@@ -221,10 +229,11 @@ do_update(InstId, NewConfig) ->
 do_restart(InstId) ->
     case lookup(InstId) of
         {ok, #{mod := Mod, state := WidgetState, config := Config} = Data} ->
-            _ = mod_stop(InstId, Mod, WidgetState),
-            case mod_start(InstId, Mod, Config) of
+            _ = emqx_widget:call_stop(InstId, Mod, WidgetState),
+            case emqx_widget:call_start(InstId, Mod, Config) of
                 {ok, WidgetState} ->
-                    ets:insert(emqx_widget_instance, {InstId, Data#{state => WidgetState, status => started}}),
+                    ets:insert(emqx_widget_instance,
+                        {InstId, Data#{state => WidgetState, status => started}}),
                     ok;
                 {error, Reason} ->
                     ets:insert(emqx_widget_instance, {InstId, Data#{status => stopped}}),
@@ -237,7 +246,7 @@ do_restart(InstId) ->
 do_stop(InstId) ->
     case lookup(InstId) of
         {ok, #{mod := Mod, state := WidgetState} = Data} ->
-            _ = mod_stop(InstId, Mod, WidgetState),
+            _ = emqx_widget:call_stop(InstId, Mod, WidgetState),
             ets:insert(emqx_widget_instance, {InstId, Data#{status => stopped}}),
             ok;
         Error ->
@@ -247,9 +256,10 @@ do_stop(InstId) ->
 do_health_check(InstId) ->
     case lookup(InstId) of
         {ok, #{mod := Mod, state := WidgetState0} = Data} ->
-            case mod_health_check(InstId, Mod, WidgetState0) of
+            case emqx_widget:call_health_check(InstId, Mod, WidgetState0) of
                 {ok, WidgetState1} ->
-                    ets:insert(emqx_widget_instance, {InstId, Data#{status => started, state => WidgetState1}}),
+                    ets:insert(emqx_widget_instance,
+                        {InstId, Data#{status => started, state => WidgetState1}}),
                     ok;
                 {error, Reason} ->
                     logger:error("health check for ~p failed: ~p", [InstId, Reason]),
@@ -259,15 +269,6 @@ do_health_check(InstId) ->
         Error ->
             Error
     end.
-
-mod_start(InstId, Mod, Config) ->
-    ?SAFE_CALL(Mod:on_start(InstId, Config)).
-
-mod_health_check(InstId, Mod, WidgetState) ->
-    ?SAFE_CALL(Mod:on_health_check(InstId, WidgetState)).
-
-mod_stop(InstId, Mod, WidgetState) ->
-    ?SAFE_CALL(Mod:on_stop(InstId, WidgetState)).
 
 %%------------------------------------------------------------------------------
 %% internal functions

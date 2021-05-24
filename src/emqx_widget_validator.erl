@@ -54,5 +54,4 @@ err_limit({Type, {Op, Expected}, {got, Got}}) ->
 
 return(true, _) -> ok;
 return(false, Error) ->
-    io:format("================= ~s~n", [Error]),
     {error, Error}.
