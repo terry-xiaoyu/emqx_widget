@@ -106,24 +106,29 @@ load_widget_instance(Config) when is_list(Config) ->
     lists:foreach(fun load_widget_instance/1, Config);
 
 %% Config for a widget
-load_widget_instance(#{<<"value">> := #{<<"widget_type">> := WidgetType}} = Config) ->
+load_widget_instance(Config) ->
+    logger:debug("loading widget instance from config: ~p", [Config]),
+    WidgetType = hocon_schema:deep_get("widget_type", Config, value),
     case get_cbk_mod_of_widget(WidgetType) of
         {ok, CbkMod} ->
             do_load_widget_instance(CbkMod, Config);
-        Error -> Error
+        Error ->
+            logger:error("load widget instance failed: ~p, config: ~p", [Error, Config])
     end.
 
 do_load_widget_instance(WidgetType, Config) ->
     case ?SAFE_CALL(hocon_schema:generate(WidgetType, Config)) of
         {error, Reason} ->
-            logger:error("load widget instance for type ~p failed: ~p", [WidgetType, Reason]);
-        Config ->
-            InstId = proplists:get_value(id, Config),
-            InstConf = proplists:get_value(config, Config),
+            logger:error("load widget instance for type ~p failed: ~p, config: ~p",
+                [WidgetType, Reason, Config]);
+        Config0 ->
+            InstId = proplists:get_value(id, Config0),
+            InstConf = proplists:get_value(config, Config0),
             case ?SAFE_CALL(do_create(InstId, WidgetType, InstConf)) of
                 ok -> ok;
                 {error, Reason} ->
-                    logger:error("create widget instance for type ~p failed: ~p", [WidgetType, Reason])
+                    logger:error("create widget instance for type ~p failed: ~p, config: ~p",
+                        [WidgetType, Reason, Config0])
             end
     end.
 
@@ -347,7 +352,7 @@ proc_name(Mod, Id) ->
     list_to_atom(lists:concat([Mod, "_", Id])).
 
 get_cbk_mod_of_widget(WidgetType) ->
-    try Mod = binary_to_existing_atom(WidgetType, latin1),
+    try Mod = list_to_existing_atom(str(WidgetType)),
         case emqx_widget:is_widget_mod(Mod) of
             true -> {ok, Mod};
             false -> {error, {invalid_widget, Mod}}
@@ -358,3 +363,6 @@ get_cbk_mod_of_widget(WidgetType) ->
 
 pick(InstId) ->
     gproc_pool:pick_worker(emqx_widget_instance, InstId).
+
+str(S) when is_binary(S) -> binary_to_list(S);
+str(S) when is_list(S) -> S.

@@ -127,10 +127,18 @@ validators(#{<<"type">> := DataType} = Spec)
             ?Q("[emqx_widget_validator:max(_@Type@,_@Max@),"
                " emqx_widget_validator:min(_@Type@,_@Min@)]")
     end;
-validators(#{<<"type">> := <<"enum">>, <<"enum">> := Enums}) ->
-    ?Q("[emqx_widget_validator:enum(_@Enums@)]");
+validators(#{<<"type">> := <<"enum">>, <<"enum">> := Enum0}) ->
+    Enum = [enum_item(E) || E <- Enum0],
+    ?Q("[emqx_widget_validator:enum(_@Enum@)]");
 validators(_Spec) ->
     ?Q("[]").
+
+enum_item(E) when is_binary(E) ->
+    binary_to_atom(E, latin1);
+enum_item(E) when is_list(E) ->
+    list_to_atom(E);
+enum_item(E) when is_number(E) ->
+    E.
 
 max_field(Type) when Type =:= array; Type =:= string ->
     <<"max_len">>;

@@ -1,5 +1,5 @@
 -type widget_type() :: module().
--type instance_id() :: binary().
+-type instance_id() :: string().
 -type widget_config() :: [{atom(), term()}].
 -type widget_spec() :: map().
 -type widget_state() :: term().
