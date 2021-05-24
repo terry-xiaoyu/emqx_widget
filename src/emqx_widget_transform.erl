@@ -5,9 +5,17 @@
 -export([parse_transform/2]).
 
 parse_transform(Forms, _Options) ->
-    A = trans(proplists:delete(eof, Forms)),
-    merl:print(A),
-    A.
+    AST = trans(proplists:delete(eof, Forms)),
+    debug_print(AST),
+    AST.
+
+-ifdef(WIDGET_DEBUG).
+debug_print(AST) ->
+    merl:print(AST).
+-else.
+debug_print(_AST) ->
+    ok.
+-endif.
 
 trans(Forms) ->
     forms(Forms) ++ [erl_syntax:revert(erl_syntax:eof_marker())].
