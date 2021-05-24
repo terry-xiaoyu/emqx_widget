@@ -88,11 +88,11 @@
     {ok, widget_state()} | {error, Reason:: term(), widget_state()}.
 
 %% load specs and return the loaded widgets this time.
--spec list_types_verbose() -> [module()].
+-spec list_types_verbose() -> [widget_spec()].
 list_types_verbose() ->
     [get_spec(Mod) || Mod <- list_types()].
 
--spec list_types() -> [widget_spec()].
+-spec list_types() -> [module()].
 list_types() ->
     discover_widget_mods().
 

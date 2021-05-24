@@ -76,7 +76,7 @@ list_all() ->
 
 -spec lookup_by_type(module()) -> [widget_data()].
 lookup_by_type(WidgetType) ->
-    [Data || #{mod := Mod} = Data <- ets:tab2list(emqx_widget_instance)
+    [Data || {_, #{mod := Mod} = Data} <- list_all()
              , Mod =:= WidgetType].
 
 -spec load(Dir :: string()) -> ok.
@@ -192,13 +192,13 @@ do_create(InstId, WidgetType, Config) when is_map(Config) ->
 do_create_dry_run(InstId, WidgetType, Config) when is_map(Config) ->
     case emqx_widget:call_start(InstId, WidgetType, Config) of
         {ok, WidgetState0} ->
-            case emqx_widget:call_health_check(InstId, WidgetType, WidgetState0) of
-                {ok, WidgetState1} ->
-                    _ = emqx_widget:call_stop(InstId, WidgetType, WidgetState1),
-                    ok;
-                {error, Reason} ->
+            Return = case emqx_widget:call_health_check(InstId, WidgetType, WidgetState0) of
+                {ok, WidgetState1} -> ok;
+                {error, Reason, WidgetState1} ->
                     {error, Reason}
-            end;
+            end,
+            _ = emqx_widget:call_stop(InstId, WidgetType, WidgetState1),
+            Return;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -266,9 +266,10 @@ do_health_check(InstId) ->
                     ets:insert(emqx_widget_instance,
                         {InstId, Data#{status => started, state => WidgetState1}}),
                     ok;
-                {error, Reason} ->
+                {error, Reason, WidgetState1} ->
                     logger:error("health check for ~p failed: ~p", [InstId, Reason]),
-                    ets:insert(emqx_widget_instance, {InstId, Data#{status => stopped}}),
+                    ets:insert(emqx_widget_instance,
+                        {InstId, Data#{status => stopped, state => WidgetState1}}),
                     {error, Reason}
             end;
         Error ->
