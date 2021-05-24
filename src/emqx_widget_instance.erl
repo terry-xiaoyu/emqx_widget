@@ -26,6 +26,7 @@
 %% load widget instances from *.conf files
 -export([ load/1
         , lookup/1
+        , list_all/0
         , lookup_by_type/1
         ]).
 
@@ -68,6 +69,10 @@ lookup(InstId) ->
         [] -> {error, not_found};
         [{_, Data}] -> {ok, Data}
     end.
+
+-spec list_all() -> [{instance_id(), widget_data()}].
+list_all() ->
+    ets:tab2list(emqx_widget_instance).
 
 -spec lookup_by_type(module()) -> [widget_data()].
 lookup_by_type(WidgetType) ->

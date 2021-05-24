@@ -23,6 +23,7 @@
 
 -export([ get_type/1
         , list_types/0
+        , list_types_verbose/0
         ]).
 
 -export([ discover_widget_mods/0
@@ -60,7 +61,9 @@
         , call_stop/3   %% stop the instance
         ]).
 
--export([ get_instance/1 %% return the data of the instance
+-export([ list_instances/0 %% list all the instances, id only.
+        , list_instances_verbose/0 %% list all the instances
+        , get_instance/1 %% return the data of the instance
         , get_instance_by_type/1 %% return all the instances of the same widget type
         , load_instances/1 %% load instances from config files
         % , dependents/1
@@ -85,9 +88,13 @@
     {ok, widget_state()} | {error, Reason:: term(), widget_state()}.
 
 %% load specs and return the loaded widgets this time.
+-spec list_types_verbose() -> [module()].
+list_types_verbose() ->
+    [get_spec(Mod) || Mod <- list_types()].
+
 -spec list_types() -> [widget_spec()].
 list_types() ->
-    [get_spec(Mod) || Mod <- discover_widget_mods()].
+    discover_widget_mods().
 
 -spec get_type(module()) -> {ok, widget_spec()} | {error, not_found}.
 get_type(Mod) ->
@@ -170,6 +177,14 @@ health_check(InstId) ->
 -spec get_instance(instance_id()) -> {ok, widget_data()} | {error, Reason :: term()}.
 get_instance(InstId) ->
     emqx_widget_instance:lookup(InstId).
+
+-spec list_instances() -> [instance_id()].
+list_instances() ->
+    [Id || {Id, _} <- list_instances_verbose()].
+
+-spec list_instances_verbose() -> [{instance_id(), widget_data()}].
+list_instances_verbose() ->
+    emqx_widget_instance:list_all().
 
 -spec get_instance_by_type(module()) -> [widget_data()].
 get_instance_by_type(WidgetType) ->
