@@ -6,7 +6,6 @@
 
 parse_transform(Forms, _Opts) ->
     ModName = hd([Mod || {attribute, _, module, Mod} <- Forms]),
-    io:format("----------- ModName: ~p~n", [ModName]),
     AST = trans(proplists:delete(eof, Forms)),
     debug_print(ModName, AST),
     AST.
@@ -126,13 +125,15 @@ fix_api_funcs() ->
                             }}
                     end;
                 {error, Reason} ->
-                    {400, #{code => 108, message => iolist_to_binary(io_lib:format(\"~p\", [Reason]))}}
+                    {400, #{code => 108, message =>
+                        iolist_to_binary(io_lib:format(\"~p\", [Reason]))}}
             end."),
      ?Q("api_delete(#{id := Id}, _Params) ->
             case emqx_widget:remove(Id) of
                 ok -> {200, #{code => 0, data => #{}}};
                 {error, Reason} ->
-                    {500, #{code => 102, message => iolist_to_binary(io_lib:format(\"~p\", [Reason]))}}
+                    {500, #{code => 102, message =>
+                        iolist_to_binary(io_lib:format(\"~p\", [Reason]))}}
             end.")
     ].
 
