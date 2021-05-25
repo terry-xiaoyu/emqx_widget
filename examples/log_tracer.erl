@@ -3,6 +3,7 @@
 -include_lib("emqx_widget/include/emqx_widget_mod.hrl").
 
 -emqx_widget_spec("examples/log_tracer.wgt").
+-emqx_widget_api_path("/log_tracer").
 
 -export([ on_start/2
         , on_stop/2
@@ -10,8 +11,8 @@
         , on_health_check/2
         ]).
 
-%% callbacks for schema
--export([config_transform/1]).
+%% callbacks
+-export([config_transform/1, format_data/1]).
 
 on_start(InstId, Config) ->
     io:format("== the demo log tracer ~p started.~nconfig: ~p~n", [InstId, Config]),
@@ -34,3 +35,6 @@ on_health_check(InstId, State = #{health_checked := Checked}) ->
 
 config_transform(_KeyPath) ->
     [].
+
+format_data(#{id := Id, status := Status, state := #{health_checked := NChecked}}) ->
+    #{id => list_to_binary(Id), status => Status, checked_count => NChecked}.
