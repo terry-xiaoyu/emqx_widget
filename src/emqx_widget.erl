@@ -44,7 +44,8 @@
 %% todo: replicate operations
 -export([ create/3 %% store the config and start the instance
         , create_dry_run/3 %% run start/2, health_check/2 and stop/1 sequentially
-        , update/2 %% update the config, stop the old instance and start the new one
+        , update/3 %% update the config, stop the old instance and start the new one
+                   %% it will create a new widget when the id does not exist
         , remove/1 %% remove the config and stop the instance
         ]).
 
@@ -130,18 +131,20 @@ query_failed({_, {OnFailed, Args}}) ->
 %% =================================================================================
 %% APIs for widget instances
 %% =================================================================================
--spec create(instance_id(), widget_type(), widget_config()) -> ok | {error, Reason :: term()}.
+-spec create(instance_id(), widget_type(), widget_config()) ->
+    {ok, widget_data()} | {error, Reason :: term()}.
 create(InstId, WidgetType, Config) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {create, InstId, WidgetType, Config}]).
+    ?CLUSTER_CALL(call_instance, [InstId, {create, InstId, WidgetType, Config}], {ok, _}).
 
 -spec create_dry_run(instance_id(), widget_type(), widget_config()) ->
     ok | {error, Reason :: term()}.
 create_dry_run(InstId, WidgetType, Config) ->
     ?CLUSTER_CALL(call_instance, [InstId, {create_dry_run, InstId, WidgetType, Config}]).
 
--spec update(instance_id(), widget_config()) -> ok | {error, Reason :: term()}.
-update(InstId, Config) ->
-    ?CLUSTER_CALL(call_instance, [InstId, {update, InstId, Config}]).
+-spec update(instance_id(), widget_type(), widget_config()) ->
+    {ok, widget_data()} | {error, Reason :: term()}.
+update(InstId, WidgetType, Config) ->
+    ?CLUSTER_CALL(call_instance, [InstId, {update, InstId, WidgetType, Config}], {ok, _}).
 
 -spec remove(instance_id()) -> ok | {error, Reason :: term()}.
 remove(InstId) ->
@@ -182,9 +185,9 @@ get_instance(InstId) ->
 
 -spec list_instances() -> [instance_id()].
 list_instances() ->
-    [Id || {Id, _} <- list_instances_verbose()].
+    [Id || #{id := Id} <- list_instances_verbose()].
 
--spec list_instances_verbose() -> [{instance_id(), widget_data()}].
+-spec list_instances_verbose() -> [widget_data()].
 list_instances_verbose() ->
     emqx_widget_instance:list_all().
 

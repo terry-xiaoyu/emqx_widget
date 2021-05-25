@@ -67,16 +67,20 @@ hash_call(InstId, Request, Timeout) ->
 lookup(InstId) ->
     case ets:lookup(emqx_widget_instance, InstId) of
         [] -> {error, not_found};
-        [{_, Data}] -> {ok, Data}
+        [{_, Data}] -> {ok, Data#{id => InstId}}
     end.
 
--spec list_all() -> [{instance_id(), widget_data()}].
+force_lookup(InstId) ->
+    {ok, Data} = lookup(InstId),
+    Data.
+
+-spec list_all() -> [widget_data()].
 list_all() ->
-    ets:tab2list(emqx_widget_instance).
+    [Data#{id => Id} || {Id, Data} <- ets:tab2list(emqx_widget_instance)].
 
 -spec lookup_by_type(module()) -> [widget_data()].
 lookup_by_type(WidgetType) ->
-    [Data || {_, #{mod := Mod} = Data} <- list_all()
+    [Data || #{mod := Mod} = Data <- list_all()
              , Mod =:= WidgetType].
 
 -spec load(Dir :: string()) -> ok.
@@ -98,9 +102,9 @@ load_file(File) ->
 
 create_instance_local(InstId, WidgetType, InstConf) ->
     case do_create(InstId, WidgetType, InstConf) of
-        ok ->
-            logger:debug("created ~p widget instance: ~p from config: ~p",
-                [WidgetType, InstId, InstConf]);
+        {ok, Data} ->
+            logger:debug("created ~p widget instance: ~p from config: ~p, Data: ~p",
+                [WidgetType, InstId, InstConf, Data]);
         {error, Reason} ->
             logger:error("create ~p widget instance: ~p failed: ~p, config: ~p",
                 [WidgetType, InstId, Reason, InstConf])
@@ -123,8 +127,8 @@ handle_call({create, InstId, WidgetType, Config}, _From, State) ->
 handle_call({create_dry_run, InstId, WidgetType, Config}, _From, State) ->
     {reply, do_create_dry_run(InstId, WidgetType, Config), State};
 
-handle_call({update, InstId, Config}, _From, State) ->
-    {reply, do_update(InstId, Config), State};
+handle_call({update, InstId, WidgetType, Config}, _From, State) ->
+    {reply, do_update(InstId, WidgetType, Config), State};
 
 handle_call({remove, InstId}, _From, State) ->
     {reply, do_remove(InstId), State};
@@ -156,6 +160,23 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%------------------------------------------------------------------------------
 
+do_update(InstId, WidgetType, NewConfig) when is_map(NewConfig) ->
+    case lookup(InstId) of
+        {ok, #{mod := WidgetType, state := WidgetState, config := OldConfig}} ->
+            Config = maps:merge(OldConfig, NewConfig),
+            case do_create_dry_run(InstId, WidgetType, Config) of
+                ok ->
+                    do_remove(WidgetType, InstId, WidgetState),
+                    do_create(InstId, WidgetType, Config);
+                Error ->
+                    Error
+            end;
+        {ok, #{mod := Mod}} when Mod =/= WidgetType ->
+            {error, updating_to_incorrect_widget_type};
+        {error, not_found} ->
+            do_create(InstId, WidgetType, NewConfig)
+    end.
+
 do_create(InstId, WidgetType, Config) when is_map(Config) ->
     case lookup(InstId) of
         {ok, _} -> {error, already_created};
@@ -166,7 +187,7 @@ do_create(InstId, WidgetType, Config) when is_map(Config) ->
                         #{mod => WidgetType, config => Config,
                           state => WidgetState, status => stopped}}),
                     _ = do_health_check(InstId),
-                    ok;
+                    {ok, force_lookup(InstId)};
                 {error, Reason} ->
                     logger:error("start ~s widget ~s failed: ~p", [WidgetType, InstId, Reason]),
                     {error, Reason}
@@ -199,21 +220,6 @@ do_remove(Mod, InstId, WidgetState) ->
     _ = emqx_widget:call_stop(InstId, Mod, WidgetState),
     ets:delete(emqx_widget_instance, InstId),
     ok.
-
-do_update(InstId, NewConfig) when is_map(NewConfig) ->
-    case lookup(InstId) of
-        {ok, #{mod := Mod, state := WidgetState, config := OldConfig}} ->
-            Config = maps:merge(OldConfig, NewConfig),
-            case do_create_dry_run(InstId, Mod, Config) of
-                ok ->
-                    do_remove(Mod, InstId, WidgetState),
-                    do_create(InstId, Mod, Config);
-                Error ->
-                    Error
-            end;
-        Error ->
-            Error
-    end.
 
 do_restart(InstId) ->
     case lookup(InstId) of

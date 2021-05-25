@@ -4,6 +4,7 @@
 -type widget_spec() :: map().
 -type widget_state() :: term().
 -type widget_data() :: #{
+    id => string(),
     mod => module(),
     config => widget_config(),
     state => widget_state(),
