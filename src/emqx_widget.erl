@@ -227,7 +227,7 @@ parse_config(RawConfig) ->
 do_parse_config(WidgetTypeStr, MapConfig) ->
     case widget_type_from_str(WidgetTypeStr) of
         {ok, WidgetType} ->
-            case ?SAFE_CALL(hocon_schema:generate(WidgetType, MapConfig)) of
+            case ?SAFE_CALL(hocon_schema:generate(WidgetType:emqx_widget_schema(), MapConfig)) of
                 {error, Reason} -> {error, Reason};
                 Config ->
                     InstId = proplists:get_value(id, Config),

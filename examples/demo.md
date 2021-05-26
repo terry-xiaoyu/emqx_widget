@@ -30,9 +30,9 @@ The little log tracer
 
 ---
 
-- The spec file (log_tracer.spec):
+- The hocon schema file (log_tracer_schema.erl):
 
-https://github.com/terry-xiaoyu/emqx_widget/blob/main/examples/log_tracer.spec
+https://github.com/terry-xiaoyu/emqx_widget/blob/main/examples/log_tracer_schema.erl
 
 - The callback file (log_tracer.erl):
 
@@ -54,7 +54,7 @@ Load instance from config files (auto loaded)
 emqx_widget:load_instances("./_build/default/lib/emqx_widget/examples").
 ```
 
-The config file is validated against the schema (`*.spec`) before loaded.
+The config file is validated against the schema (`*_schema.erl`) before loaded.
 
 ---
 
