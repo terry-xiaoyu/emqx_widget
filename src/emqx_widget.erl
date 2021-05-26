@@ -108,7 +108,7 @@ get_type(Mod) ->
 
 -spec get_spec(module()) -> widget_spec().
 get_spec(Mod) ->
-    maps:put(<<"widget_type">>, Mod, Mod:emqx_widget_spec()).
+    maps:put(<<"widget_type">>, Mod, Mod:emqx_widget_schema()).
 
 -spec discover_widget_mods() -> [module()].
 discover_widget_mods() ->
@@ -116,7 +116,7 @@ discover_widget_mods() ->
 
 -spec is_widget_mod(module()) -> boolean().
 is_widget_mod(Mod) ->
-    erlang:function_exported(Mod, emqx_widget_spec, 0).
+    erlang:function_exported(Mod, emqx_widget_schema, 0).
 
 -spec query_success(after_query()) -> ok.
 query_success(undefined) -> ok;
