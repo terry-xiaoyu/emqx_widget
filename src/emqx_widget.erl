@@ -74,7 +74,7 @@
         % , inc_counter/3 %% increment the counter by a given integer
         ]).
 
--define(EXT, "*.wgt").
+-define(EXT, "*.spec").
 
 %% when calling emqx_widget:start/1
 -callback on_start(instance_id(), widget_config()) ->

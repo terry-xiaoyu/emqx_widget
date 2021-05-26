@@ -2,7 +2,7 @@
 
 -include_lib("emqx_widget/include/emqx_widget_mod.hrl").
 
--emqx_widget_spec("examples/log_tracer.wgt").
+-emqx_widget_spec("examples/log_tracer.spec").
 -emqx_widget_api_path("/log_tracer").
 
 -export([ on_start/2

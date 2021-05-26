@@ -5,7 +5,7 @@ for components that need to be configured and manipulated from the emqx-dashboar
 
 It is intended to be used by resources, actions, acl, auth, backend_logics and more.
 
-It reads the configuration spec from *.wgt (in HOCON format) and provide APIs for
+It reads the configuration spec from *.spec (in HOCON format) and provide APIs for
 creating, updating and destroying widget instances among all nodes in the cluster.
 
 It handles the problem like storing the configs and runtime states for both widget
@@ -52,16 +52,16 @@ So they may find each other via this Id.
     5> emqx_widget_instance:query(<<"log_tracer_clientid_shawn">>, get_log).
     ** exception error: {get_instance,{<<"log_tracer_clientid_shawn">>,not_found}}
 
-## The *.wgt file
+## The *.spec file
 
-The widget uses the .wgt file as a specification to define the schema of its config file and the
+The widget uses the .spec file as a specification to define the schema of its config file and the
 request body of HTTP API.
-The .wgt describes what fields the widget accepts and also the type of the fields.
+The .spec describes what fields the widget accepts and also the type of the fields.
 
-Besides the validation, the .wgt file is also used by the dashboard to render the UI. For example
+Besides the validation, the .spec file is also used by the dashboard to render the UI. For example
 what fields should exist and what fields should not, and whether provide a textbox or textarea
 (multi-line textbox) to the user. It also defines the order of the component displayed on the UI.
-These functionalities are implement by some metadata fields in the .wgt file.
+These functionalities are implement by some metadata fields in the .spec file.
 
 ### The metadata for widget title and descriptions
 
@@ -75,7 +75,7 @@ description: "write more detailed descriptions here"
 
 ### The metadata for layout of UI components
 
-The .wgt file can defined the order of the UI components for the fields, by specifying the top-level
+The .spec file can defined the order of the UI components for the fields, by specifying the top-level
 fields in an array:
 
 ```
